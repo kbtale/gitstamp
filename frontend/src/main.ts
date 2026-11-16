@@ -7,7 +7,6 @@ import {
   handlePkceCallback,
   fetchUserProfile,
   getStoredToken,
-  setStoredToken,
   getStoredUser,
   clearAuth
 } from './modules/auth-pkce';
@@ -32,8 +31,11 @@ import {
   createBrushPalette
 } from './modules/ui-components';
 
-const DEFAULT_CLIENT_ID = (import.meta as any).env?.VITE_GITHUB_APP_CLIENT_ID || '';
-const DEFAULT_APP_SLUG = (import.meta as any).env?.VITE_GITHUB_APP_SLUG || '';
+const DEFAULT_CLIENT_ID = (import.meta as any).env?.VITE_GITHUB_APP_CLIENT_ID || 'Iv23liETnS8etdqB3qHt';
+const DEFAULT_APP_SLUG = (import.meta as any).env?.VITE_GITHUB_APP_SLUG || 'gitstamp';
+
+let activeClientId: string = DEFAULT_CLIENT_ID;
+let activeAppSlug: string = DEFAULT_APP_SLUG;
 
 let currentUser: UserProfile | null = getStoredUser();
 let currentImage: HTMLImageElement | null = null;
@@ -43,25 +45,12 @@ let currentInvert: boolean = false;
 let currentTheme: AppTheme = 'dark';
 let currentViewMode: 'profile' | 'editor' = 'profile';
 let highlightBounds: boolean = true;
-let simulatePrivate: boolean = false;
 
 const matrixStore = new MatrixStore(24);
 
 const authStatusContainer = document.getElementById('auth-status-container') as HTMLElement;
 const btnOpenAuth = document.getElementById('btn-open-auth') as HTMLButtonElement;
-const authModal = document.getElementById('auth-modal') as HTMLElement;
-const btnCloseModal = document.getElementById('btn-close-modal') as HTMLButtonElement;
-const tabPkce = document.getElementById('tab-pkce') as HTMLButtonElement;
-const tabToken = document.getElementById('tab-token') as HTMLButtonElement;
-const panelPkce = document.getElementById('auth-panel-pkce') as HTMLElement;
-const panelToken = document.getElementById('auth-panel-token') as HTMLElement;
-const pkceClientIdInput = document.getElementById('pkce-client-id') as HTMLInputElement;
-const btnStartPkce = document.getElementById('btn-start-pkce') as HTMLButtonElement;
-const btnCreateAppManifest = document.getElementById('btn-create-app-manifest') as HTMLButtonElement;
-const appSlugContainer = document.getElementById('app-slug-container') as HTMLElement;
-const linkInstallApp = document.getElementById('link-install-app') as HTMLAnchorElement;
-const patInput = document.getElementById('pat-input') as HTMLInputElement;
-const btnSaveToken = document.getElementById('btn-save-token') as HTMLButtonElement;
+const btnInstallApp = document.getElementById('btn-install-app') as HTMLAnchorElement;
 
 const uploadDropzone = document.getElementById('upload-dropzone') as HTMLElement;
 const dropzoneEmpty = document.getElementById('dropzone-empty') as HTMLElement;
@@ -81,7 +70,6 @@ const btnThemeToggle = document.getElementById('btn-theme-toggle') as HTMLButton
 const btnContributionSettings = document.getElementById('btn-contribution-settings') as HTMLButtonElement;
 const settingsDropdownMenu = document.getElementById('settings-dropdown-menu') as HTMLElement;
 const settingHighlightBounds = document.getElementById('setting-highlight-bounds') as HTMLInputElement;
-const settingPrivateCommits = document.getElementById('setting-private-commits') as HTMLInputElement;
 const settingBtnResetArt = document.getElementById('setting-btn-reset-art') as HTMLButtonElement;
 const targetRepoLink = document.getElementById('target-repo-link') as HTMLAnchorElement;
 const dayLabelsCol = document.getElementById('day-labels-col') as HTMLElement;
@@ -107,13 +95,10 @@ const stepRepo = document.getElementById('step-repo') as HTMLElement;
 const stepFiles = document.getElementById('step-files') as HTMLElement;
 const stepDispatch = document.getElementById('step-dispatch') as HTMLElement;
 
-pkceClientIdInput.value = DEFAULT_CLIENT_ID;
-
 profileYearLabel.textContent = String(new Date().getFullYear());
 
-if (DEFAULT_APP_SLUG) {
-  appSlugContainer.style.display = 'block';
-  linkInstallApp.href = `https://github.com/apps/${DEFAULT_APP_SLUG}/installations/new`;
+if (btnInstallApp && activeAppSlug) {
+  btnInstallApp.href = `https://github.com/apps/${activeAppSlug}/installations/new`;
 }
 
 let isUserManualThreshold = false;
@@ -289,8 +274,6 @@ function renderCurrentView(matrix: ContributionLevel[][]) {
         let level: ContributionLevel = 0;
         if (isArtworkCol) {
           level = matrix[r][artCol] || 0;
-        } else if (simulatePrivate) {
-          level = ((c * 7 + r * 13) % 7 === 0) ? 1 : ((c * 7 + r * 13) % 19 === 0 ? 2 : 0);
         }
         totalCommits += weightMap[level] || 0;
 
@@ -474,11 +457,6 @@ settingHighlightBounds.addEventListener('change', () => {
   renderCurrentView(matrixStore.getMatrix());
 });
 
-settingPrivateCommits.addEventListener('change', () => {
-  simulatePrivate = settingPrivateCommits.checked;
-  renderCurrentView(matrixStore.getMatrix());
-});
-
 settingBtnResetArt.addEventListener('click', () => {
   matrixStore.clear();
   settingsDropdownMenu.style.display = 'none';
@@ -521,102 +499,12 @@ function updateAuthDisplay() {
   }
 }
 
-btnOpenAuth.addEventListener('click', () => {
-  authModal.style.display = 'flex';
-});
-
-btnCloseModal.addEventListener('click', () => {
-  authModal.style.display = 'none';
-});
-
-authModal.addEventListener('click', (e) => {
-  if (e.target === authModal) {
-    authModal.style.display = 'none';
-  }
-});
-
-tabPkce.addEventListener('click', () => {
-  tabPkce.classList.add('active');
-  tabToken.classList.remove('active');
-  panelPkce.style.display = 'block';
-  panelToken.style.display = 'none';
-});
-
-tabToken.addEventListener('click', () => {
-  tabToken.classList.add('active');
-  tabPkce.classList.remove('active');
-  panelToken.style.display = 'block';
-  panelPkce.style.display = 'none';
-});
-
-btnCreateAppManifest.addEventListener('click', () => {
-  const currentUrl = window.location.origin + window.location.pathname;
-  const manifest = {
-    name: 'GitStamp-' + Math.random().toString(36).substring(2, 7),
-    url: currentUrl,
-    hook_attributes: {
-      active: false
-    },
-    redirect_url: currentUrl,
-    public: true,
-    default_permissions: {
-      administration: 'write',
-      contents: 'write',
-      workflows: 'write'
-    },
-    default_events: []
-  };
-
-  const form = document.createElement('form');
-  form.method = 'POST';
-  form.action = 'https://github.com/settings/apps/new';
-  form.target = '_blank';
-
-  const input = document.createElement('input');
-  input.type = 'hidden';
-  input.name = 'manifest';
-  input.value = JSON.stringify(manifest);
-
-  form.appendChild(input);
-  document.body.appendChild(form);
-  form.submit();
-  document.body.removeChild(form);
-});
-
-btnStartPkce.addEventListener('click', async () => {
-  const clientId = pkceClientIdInput.value.trim();
-  if (!clientId) {
-    alert('Please enter a GitHub App Client ID');
-    return;
-  }
+btnOpenAuth.addEventListener('click', async () => {
   const redirectUri = window.location.origin + window.location.pathname;
   await initiatePkceLogin({
-    clientId,
+    clientId: activeClientId,
     redirectUri
   });
-});
-
-btnSaveToken.addEventListener('click', async () => {
-  const token = patInput.value.trim();
-  if (!token) {
-    alert('Please enter a GitHub personal access token');
-    return;
-  }
-  btnSaveToken.disabled = true;
-  btnSaveToken.textContent = 'Verifying...';
-
-  try {
-    const user = await fetchUserProfile(token);
-    setStoredToken(token);
-    currentUser = user;
-    authModal.style.display = 'none';
-    updateAuthDisplay();
-  } catch (err: any) {
-    alert(`Authentication failed: ${err.message}`);
-  } finally {
-    btnSaveToken.disabled = false;
-    btnSaveToken.textContent = 'Connect with Token';
-  }
 });
 
 async function checkExistingUserRepo() {
@@ -670,14 +558,13 @@ function setStepStatus(stepEl: HTMLElement, status: 'pending' | 'running' | 'suc
 }
 
 btnDeploy.addEventListener('click', async () => {
-  if (!currentUser) {
-    authModal.style.display = 'flex';
-    return;
-  }
-
   const token = getStoredToken();
-  if (!token) {
-    authModal.style.display = 'flex';
+  if (!currentUser || !token) {
+    const redirectUri = window.location.origin + window.location.pathname;
+    await initiatePkceLogin({
+      clientId: activeClientId,
+      redirectUri
+    });
     return;
   }
 
@@ -789,12 +676,14 @@ async function loadServerConfig() {
     const res = await fetch('/api/config');
     if (res.ok) {
       const cfg = await res.json();
-      if (cfg.clientId && !pkceClientIdInput.value) {
-        pkceClientIdInput.value = cfg.clientId;
+      if (cfg.clientId) {
+        activeClientId = cfg.clientId;
       }
       if (cfg.appSlug) {
-        appSlugContainer.style.display = 'block';
-        linkInstallApp.href = `https://github.com/apps/${cfg.appSlug}/installations/new`;
+        activeAppSlug = cfg.appSlug;
+        if (btnInstallApp) {
+          btnInstallApp.href = `https://github.com/apps/${cfg.appSlug}/installations/new`;
+        }
       }
     }
   } catch {}
@@ -807,7 +696,7 @@ async function init() {
   const redirectUri = window.location.origin + window.location.pathname;
   try {
     const token = await handlePkceCallback({
-      clientId: DEFAULT_CLIENT_ID || pkceClientIdInput.value,
+      clientId: activeClientId,
       redirectUri
     });
     if (token) {

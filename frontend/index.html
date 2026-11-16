@@ -31,8 +31,11 @@
         <span>kbtale/gitstamp</span>
         <span class="star-badge">⭐ Star</span>
       </a>
+      <a href="https://github.com/apps/gitstamp/installations/new" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" id="btn-install-app">
+        Install App
+      </a>
       <div id="auth-status-container"></div>
-      <button type="button" class="btn btn-secondary btn-sm" id="btn-open-auth">
+      <button type="button" class="btn btn-primary btn-sm" id="btn-open-auth">
         Sign In with GitHub
       </button>
     </div>
@@ -130,10 +133,6 @@
                     <input type="checkbox" id="setting-highlight-bounds" checked />
                     <span>Highlight artwork bounds</span>
                   </label>
-                  <label class="dropdown-item">
-                    <input type="checkbox" id="setting-private-commits" />
-                    <span>Simulate private commits</span>
-                  </label>
                   <div class="dropdown-divider"></div>
                   <button type="button" class="dropdown-action-btn" id="setting-btn-reset-art">
                     Clear artwork matrix
@@ -208,52 +207,6 @@
       </section>
     </div>
   </main>
-
-  <div class="modal-backdrop" id="auth-modal" style="display: none;">
-    <div class="modal-card">
-      <div class="modal-header">
-        <h2 class="modal-title">GitHub Authentication</h2>
-        <button type="button" class="btn-close" id="btn-close-modal">✕</button>
-      </div>
-
-      <div class="auth-tabs">
-        <button type="button" class="auth-tab active" id="tab-pkce">GitHub App (OAuth PKCE)</button>
-        <button type="button" class="auth-tab" id="tab-token">Personal Token</button>
-      </div>
-
-      <div id="auth-panel-pkce">
-        <div class="form-group">
-          <label class="control-label" for="pkce-client-id">GitHub App Client ID</label>
-          <input type="text" id="pkce-client-id" class="text-input" placeholder="Iv1.xxxxxxxxx or Ov23xxxx" />
-          <span class="form-hint">Zero-backend authentication using client-side Proof Key for Code Exchange (PKCE).</span>
-        </div>
-
-        <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
-          <button type="button" class="btn btn-primary" id="btn-start-pkce" style="flex: 1;">
-            Sign In with GitHub App
-          </button>
-          <button type="button" class="btn btn-secondary" id="btn-create-app-manifest" title="Create a new GitHub App with required permissions pre-filled">
-            1-Click App Setup
-          </button>
-        </div>
-
-        <div id="app-slug-container" style="display: none; margin-top: 0.75rem; font-size: 0.75rem; text-align: center;">
-          <a href="#" id="link-install-app" target="_blank">Install App on Your GitHub Account &rarr;</a>
-        </div>
-      </div>
-
-      <div id="auth-panel-token" style="display: none;">
-        <div class="form-group">
-          <label class="control-label" for="pat-input">Personal Access Token / Fine-Grained Token</label>
-          <input type="password" id="pat-input" class="text-input" placeholder="github_pat_xxxx or ghp_xxxx" />
-          <span class="form-hint">Direct token fallback. Requires Administration (read/write), Contents (read/write), and Workflows (read/write).</span>
-        </div>
-        <button type="button" class="btn btn-primary" id="btn-save-token" style="width: 100%; margin-top: 1rem;">
-          Connect with Token
-        </button>
-      </div>
-    </div>
-  </div>
 
   <footer class="app-footer">
     <div class="footer-content">
