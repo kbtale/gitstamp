@@ -38,3 +38,8 @@ export interface DeploymentStep {
   status: 'pending' | 'running' | 'success' | 'error';
   message?: string;
 }
+
+export interface UserContributionData {
+  totalContributions: number;
+  matrix: ContributionLevel[][];
+}
