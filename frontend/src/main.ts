@@ -1,0 +1,725 @@
+import './styles/main.css';
+import { ContributionLevel, ProcessingMode, AppTheme, UserProfile } from './types';
+import { MatrixStore } from './modules/matrix-state';
+import { loadImageFromFile, processImageToMatrix } from './modules/image-processor';
+import {
+  initiatePkceLogin,
+  handlePkceCallback,
+  fetchUserProfile,
+  getStoredToken,
+  setStoredToken,
+  getStoredUser,
+  clearAuth
+} from './modules/auth-pkce';
+import {
+  checkRepoExists,
+  createPublicRepo,
+  getFile,
+  putFile,
+  triggerWorkflow,
+  fetchExistingArt,
+  starRepo
+} from './modules/github-api';
+import {
+  RENDER_MJS_TEMPLATE,
+  RENDER_YML_TEMPLATE,
+  generateReadme
+} from './modules/templates';
+import {
+  createSegmentedControl,
+  createSlider,
+  createToggleSwitch,
+  createBrushPalette
+} from './modules/ui-components';
+
+const DEFAULT_CLIENT_ID = (import.meta as any).env?.VITE_GITHUB_APP_CLIENT_ID || '';
+const DEFAULT_APP_SLUG = (import.meta as any).env?.VITE_GITHUB_APP_SLUG || '';
+
+let currentUser: UserProfile | null = getStoredUser();
+let currentImage: HTMLImageElement | null = null;
+let currentMode: ProcessingMode = 'auto';
+let currentThreshold: number = 128;
+let currentInvert: boolean = false;
+let currentTheme: AppTheme = 'dark';
+let currentViewMode: 'profile' | 'editor' = 'profile';
+
+const matrixStore = new MatrixStore(24);
+
+const authStatusContainer = document.getElementById('auth-status-container') as HTMLElement;
+const btnOpenAuth = document.getElementById('btn-open-auth') as HTMLButtonElement;
+const authModal = document.getElementById('auth-modal') as HTMLElement;
+const btnCloseModal = document.getElementById('btn-close-modal') as HTMLButtonElement;
+const tabPkce = document.getElementById('tab-pkce') as HTMLButtonElement;
+const tabToken = document.getElementById('tab-token') as HTMLButtonElement;
+const panelPkce = document.getElementById('auth-panel-pkce') as HTMLElement;
+const panelToken = document.getElementById('auth-panel-token') as HTMLElement;
+const pkceClientIdInput = document.getElementById('pkce-client-id') as HTMLInputElement;
+const btnStartPkce = document.getElementById('btn-start-pkce') as HTMLButtonElement;
+const btnCreateAppManifest = document.getElementById('btn-create-app-manifest') as HTMLButtonElement;
+const appSlugContainer = document.getElementById('app-slug-container') as HTMLElement;
+const linkInstallApp = document.getElementById('link-install-app') as HTMLAnchorElement;
+const patInput = document.getElementById('pat-input') as HTMLInputElement;
+const btnSaveToken = document.getElementById('btn-save-token') as HTMLButtonElement;
+
+const uploadDropzone = document.getElementById('upload-dropzone') as HTMLElement;
+const fileInput = document.getElementById('file-input') as HTMLInputElement;
+
+const modeContainer = document.getElementById('mode-control-container') as HTMLElement;
+const thresholdContainer = document.getElementById('threshold-control-container') as HTMLElement;
+const invertContainer = document.getElementById('invert-control-container') as HTMLElement;
+const widthContainer = document.getElementById('width-control-container') as HTMLElement;
+const themeContainer = document.getElementById('theme-control-container') as HTMLElement;
+const viewModeContainer = document.getElementById('view-mode-container') as HTMLElement;
+
+const brushContainer = document.getElementById('brush-palette-container') as HTMLElement;
+const btnClearGrid = document.getElementById('btn-clear-grid') as HTMLButtonElement;
+const btnInvertGrid = document.getElementById('btn-invert-grid') as HTMLButtonElement;
+const btnUndoGrid = document.getElementById('btn-undo-grid') as HTMLButtonElement;
+const btnRedoGrid = document.getElementById('btn-redo-grid') as HTMLButtonElement;
+
+const graphPreviewContainer = document.getElementById('graph-preview-container') as HTMLElement;
+const monthLabelsRow = document.getElementById('month-labels-row') as HTMLElement;
+const contributionMatrix = document.getElementById('contribution-matrix') as HTMLElement;
+const graphDimensionsDisplay = document.getElementById('graph-dimensions-display') as HTMLElement;
+const profileTotalCommits = document.getElementById('profile-total-commits') as HTMLElement;
+const profileYearLabel = document.getElementById('profile-year-label') as HTMLElement;
+
+const repoNameInput = document.getElementById('repo-name-input') as HTMLInputElement;
+const repoStatusBadge = document.getElementById('repo-status-badge') as HTMLElement;
+const btnDeploy = document.getElementById('btn-deploy') as HTMLButtonElement;
+const deployStepsContainer = document.getElementById('deploy-steps-container') as HTMLElement;
+const stepRepo = document.getElementById('step-repo') as HTMLElement;
+const stepFiles = document.getElementById('step-files') as HTMLElement;
+const stepDispatch = document.getElementById('step-dispatch') as HTMLElement;
+
+pkceClientIdInput.value = DEFAULT_CLIENT_ID;
+
+profileYearLabel.textContent = String(new Date().getFullYear());
+
+if (DEFAULT_APP_SLUG) {
+  appSlugContainer.style.display = 'block';
+  linkInstallApp.href = `https://github.com/apps/${DEFAULT_APP_SLUG}/installations/new`;
+}
+
+const modeControl = createSegmentedControl<ProcessingMode>({
+  container: modeContainer,
+  options: [
+    { label: 'Auto', value: 'auto' },
+    { label: 'Bicolor', value: 'bicolor' },
+    { label: '5-Level', value: 'grayscale' }
+  ],
+  initialValue: 'auto',
+  onChange: (mode) => {
+    currentMode = mode;
+    reprocessCurrentImage();
+  }
+});
+
+const thresholdSlider = createSlider({
+  container: thresholdContainer,
+  min: 0,
+  max: 255,
+  initialValue: 128,
+  label: 'Threshold',
+  onChange: (val) => {
+    currentThreshold = val;
+    reprocessCurrentImage();
+  }
+});
+
+const invertToggle = createToggleSwitch({
+  container: invertContainer,
+  label: 'Invert Colors',
+  initialChecked: false,
+  onChange: (checked) => {
+    currentInvert = checked;
+    reprocessCurrentImage();
+  }
+});
+
+const widthSlider = createSlider({
+  container: widthContainer,
+  min: 7,
+  max: 44,
+  initialValue: 24,
+  label: 'Columns Width',
+  onChange: (cols) => {
+    matrixStore.setWidth(cols);
+    if (currentImage) {
+      reprocessCurrentImage(cols);
+    }
+  }
+});
+
+createSegmentedControl<AppTheme>({
+  container: themeContainer,
+  options: [
+    { label: 'Dark', value: 'dark' },
+    { label: 'Light', value: 'light' }
+  ],
+  initialValue: currentTheme,
+  onChange: (theme) => {
+    currentTheme = theme;
+    graphPreviewContainer.setAttribute('data-graph-theme', currentTheme);
+  }
+});
+
+createSegmentedControl<'profile' | 'editor'>({
+  container: viewModeContainer,
+  options: [
+    { label: 'Profile (53 Wks)', value: 'profile' },
+    { label: 'Editor (7×N)', value: 'editor' }
+  ],
+  initialValue: currentViewMode,
+  onChange: (view) => {
+    currentViewMode = view;
+    renderCurrentView(matrixStore.getMatrix());
+  }
+});
+
+createBrushPalette({
+  container: brushContainer,
+  initialBrush: 4,
+  onChange: (brush) => {
+    matrixStore.setActiveBrush(brush);
+  }
+});
+
+function renderMonthLabels() {
+  monthLabelsRow.innerHTML = '';
+  const now = new Date();
+  const currentDay = now.getUTCDay();
+  const currentSunday = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() - currentDay
+  ));
+  const col0Sunday = new Date(currentSunday.getTime() - 52 * 7 * 86400000);
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  let lastMonth = -1;
+  let lastPlacedCol = -10;
+
+  for (let c = 0; c < 53; c++) {
+    const weekDate = new Date(col0Sunday.getTime() + c * 7 * 86400000);
+    const m = weekDate.getUTCMonth();
+    if (m !== lastMonth && (c - lastPlacedCol >= 3 || c === 0)) {
+      const span = document.createElement('span');
+      span.className = 'month-label-item';
+      span.style.setProperty('--month-col', String(c + 1));
+      span.textContent = months[m];
+      monthLabelsRow.appendChild(span);
+      lastMonth = m;
+      lastPlacedCol = c;
+    }
+  }
+}
+
+function reprocessCurrentImage(customWidth?: number) {
+  if (!currentImage) {
+    return;
+  }
+  const result = processImageToMatrix(currentImage, {
+    mode: currentMode,
+    threshold: currentThreshold,
+    invert: currentInvert,
+    customWidth: customWidth || matrixStore.getWidth()
+  });
+
+  matrixStore.setMatrix(result.matrix);
+  if (currentMode === 'auto') {
+    thresholdSlider.setValue(result.calculatedThreshold);
+  }
+}
+
+function updateHistoryButtons() {
+  btnUndoGrid.disabled = !matrixStore.canUndo();
+  btnRedoGrid.disabled = !matrixStore.canRedo();
+}
+
+function renderCurrentView(matrix: ContributionLevel[][]) {
+  const artHeight = 7;
+  const artWidth = matrix[0]?.length || 0;
+  const startCol = Math.floor((53 - artWidth) / 2);
+
+  contributionMatrix.innerHTML = '';
+
+  let totalCommits = 0;
+  const weightMap: Record<ContributionLevel, number> = {
+    0: 0,
+    1: 1,
+    2: 2,
+    3: 3,
+    4: 5
+  };
+
+  if (currentViewMode === 'profile') {
+    monthLabelsRow.style.display = 'grid';
+    renderMonthLabels();
+    contributionMatrix.className = 'grid-53';
+    contributionMatrix.style.gridTemplateColumns = 'repeat(53, var(--cell-size))';
+
+    for (let c = 0; c < 53; c++) {
+      const isArtworkCol = c >= startCol && c < startCol + artWidth;
+      const artCol = isArtworkCol ? c - startCol : -1;
+
+      for (let r = 0; r < 7; r++) {
+        const level: ContributionLevel = isArtworkCol ? (matrix[r][artCol] || 0) : 0;
+        totalCommits += weightMap[level] || 0;
+
+        const cell = document.createElement('div');
+        cell.className = `cell cell-level-${level} ${isArtworkCol ? 'cell-in-artwork' : ''}`;
+        cell.dataset.row = String(r);
+        cell.dataset.col = String(c);
+        cell.setAttribute('role', 'gridcell');
+
+        if (isArtworkCol) {
+          cell.title = `Artwork [Row ${r + 1}, Col ${artCol + 1}]: Level ${level}`;
+          cell.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            matrixStore.handlePointerDown(r, artCol);
+          });
+          cell.addEventListener('pointerenter', () => {
+            matrixStore.handlePointerEnter(r, artCol);
+          });
+        } else {
+          cell.title = `Profile Background [Col ${c + 1}]`;
+        }
+
+        contributionMatrix.appendChild(cell);
+      }
+    }
+
+    graphDimensionsDisplay.textContent = `Pattern: 7 × ${artWidth} (Centered in 53-Week Profile)`;
+  } else {
+    monthLabelsRow.style.display = 'none';
+    contributionMatrix.className = 'contribution-matrix';
+    contributionMatrix.style.gridTemplateColumns = `repeat(${artWidth}, var(--cell-size))`;
+
+    for (let c = 0; c < artWidth; c++) {
+      for (let r = 0; r < artHeight; r++) {
+        const level = matrix[r][c];
+        totalCommits += weightMap[level] || 0;
+
+        const cell = document.createElement('div');
+        cell.className = `cell cell-level-${level}`;
+        cell.dataset.row = String(r);
+        cell.dataset.col = String(c);
+        cell.setAttribute('role', 'gridcell');
+        cell.setAttribute('aria-label', `Row ${r + 1}, Col ${c + 1}, Level ${level}`);
+
+        cell.addEventListener('pointerdown', (e) => {
+          e.preventDefault();
+          matrixStore.handlePointerDown(r, c);
+        });
+
+        cell.addEventListener('pointerenter', () => {
+          matrixStore.handlePointerEnter(r, c);
+        });
+
+        contributionMatrix.appendChild(cell);
+      }
+    }
+
+    graphDimensionsDisplay.textContent = `Editor Mode: 7 × ${artWidth} (${7 * artWidth} cells)`;
+  }
+
+  profileTotalCommits.textContent = `${totalCommits.toLocaleString()} contributions in the last year`;
+  updateHistoryButtons();
+}
+
+matrixStore.subscribe((matrix) => {
+  renderCurrentView(matrix);
+});
+
+window.addEventListener('pointerup', () => {
+  matrixStore.handlePointerUp();
+});
+
+btnClearGrid.addEventListener('click', () => matrixStore.clear());
+btnInvertGrid.addEventListener('click', () => matrixStore.invert());
+btnUndoGrid.addEventListener('click', () => matrixStore.undo());
+btnRedoGrid.addEventListener('click', () => matrixStore.redo());
+
+uploadDropzone.addEventListener('click', () => fileInput.click());
+
+uploadDropzone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  uploadDropzone.classList.add('dragover');
+});
+
+uploadDropzone.addEventListener('dragleave', () => {
+  uploadDropzone.classList.remove('dragover');
+});
+
+uploadDropzone.addEventListener('drop', async (e) => {
+  e.preventDefault();
+  uploadDropzone.classList.remove('dragover');
+  const file = e.dataTransfer?.files[0];
+  if (file) {
+    handleFileUpload(file);
+  }
+});
+
+fileInput.addEventListener('change', () => {
+  const file = fileInput.files?.[0];
+  if (file) {
+    handleFileUpload(file);
+  }
+});
+
+async function handleFileUpload(file: File) {
+  try {
+    const img = await loadImageFromFile(file);
+    currentImage = img;
+
+    const ratio = img.naturalWidth / Math.max(1, img.naturalHeight);
+    let targetWidth = Math.round(7 * ratio);
+    targetWidth = Math.max(1, Math.min(44, targetWidth));
+
+    widthSlider.setValue(targetWidth);
+
+    const result = processImageToMatrix(img, {
+      mode: currentMode,
+      threshold: currentThreshold,
+      invert: currentInvert,
+      customWidth: targetWidth
+    });
+
+    currentThreshold = result.calculatedThreshold;
+    thresholdSlider.setValue(result.calculatedThreshold);
+
+    if (currentMode === 'auto') {
+      modeControl.setValue(result.detectedMode);
+    }
+
+    matrixStore.setMatrix(result.matrix);
+  } catch (err: any) {
+    alert(`Error loading image: ${err.message || err}`);
+  }
+}
+
+function updateAuthDisplay() {
+  if (currentUser) {
+    btnOpenAuth.style.display = 'none';
+    authStatusContainer.innerHTML = `
+      <div class="user-profile-badge">
+        <img src="${currentUser.avatar_url}" alt="${currentUser.login}" class="user-avatar" />
+        <span>@${currentUser.login}</span>
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-logout" style="padding: 0.125rem 0.375rem; margin-left: 0.25rem;">Logout</button>
+      </div>
+    `;
+    const btnLogout = document.getElementById('btn-logout');
+    btnLogout?.addEventListener('click', () => {
+      clearAuth();
+      currentUser = null;
+      updateAuthDisplay();
+      checkExistingUserRepo();
+    });
+    checkExistingUserRepo();
+  } else {
+    authStatusContainer.innerHTML = '';
+    btnOpenAuth.style.display = 'inline-flex';
+    repoStatusBadge.textContent = 'Public Repo';
+  }
+}
+
+btnOpenAuth.addEventListener('click', () => {
+  authModal.style.display = 'flex';
+});
+
+btnCloseModal.addEventListener('click', () => {
+  authModal.style.display = 'none';
+});
+
+authModal.addEventListener('click', (e) => {
+  if (e.target === authModal) {
+    authModal.style.display = 'none';
+  }
+});
+
+tabPkce.addEventListener('click', () => {
+  tabPkce.classList.add('active');
+  tabToken.classList.remove('active');
+  panelPkce.style.display = 'block';
+  panelToken.style.display = 'none';
+});
+
+tabToken.addEventListener('click', () => {
+  tabToken.classList.add('active');
+  tabPkce.classList.remove('active');
+  panelToken.style.display = 'block';
+  panelPkce.style.display = 'none';
+});
+
+btnCreateAppManifest.addEventListener('click', () => {
+  const currentUrl = window.location.origin + window.location.pathname;
+  const manifest = {
+    name: 'GitStamp-' + Math.random().toString(36).substring(2, 7),
+    url: currentUrl,
+    hook_attributes: {
+      active: false
+    },
+    redirect_url: currentUrl,
+    public: true,
+    default_permissions: {
+      administration: 'write',
+      contents: 'write',
+      workflows: 'write'
+    },
+    default_events: []
+  };
+
+  const form = document.createElement('form');
+  form.method = 'POST';
+  form.action = 'https://github.com/settings/apps/new';
+  form.target = '_blank';
+
+  const input = document.createElement('input');
+  input.type = 'hidden';
+  input.name = 'manifest';
+  input.value = JSON.stringify(manifest);
+
+  form.appendChild(input);
+  document.body.appendChild(form);
+  form.submit();
+  document.body.removeChild(form);
+});
+
+btnStartPkce.addEventListener('click', async () => {
+  const clientId = pkceClientIdInput.value.trim();
+  if (!clientId) {
+    alert('Please enter a GitHub App Client ID');
+    return;
+  }
+  const redirectUri = window.location.origin + window.location.pathname;
+  await initiatePkceLogin({
+    clientId,
+    redirectUri
+  });
+});
+
+btnSaveToken.addEventListener('click', async () => {
+  const token = patInput.value.trim();
+  if (!token) {
+    alert('Please enter a GitHub personal access token');
+    return;
+  }
+  btnSaveToken.disabled = true;
+  btnSaveToken.textContent = 'Verifying...';
+
+  try {
+    const user = await fetchUserProfile(token);
+    setStoredToken(token);
+    currentUser = user;
+    authModal.style.display = 'none';
+    updateAuthDisplay();
+  } catch (err: any) {
+    alert(`Authentication failed: ${err.message}`);
+  } finally {
+    btnSaveToken.disabled = false;
+    btnSaveToken.textContent = 'Connect with Token';
+  }
+});
+
+async function checkExistingUserRepo() {
+  if (!currentUser) {
+    return;
+  }
+  const token = getStoredToken();
+  if (!token) {
+    return;
+  }
+
+  const repoName = repoNameInput.value.trim() || 'gitstamp-art';
+  try {
+    const existing = await fetchExistingArt(token, currentUser.login, repoName);
+    if (existing) {
+      repoStatusBadge.textContent = 'Repo Connected';
+      repoStatusBadge.style.backgroundColor = '#1f6feb';
+      repoStatusBadge.style.color = '#ffffff';
+
+      const promptLoad = confirm(
+        `Found existing GitStamp art in @${currentUser.login}/${repoName}. Would you like to load it into the editor?`
+      );
+      if (promptLoad && existing.config.matrix) {
+        matrixStore.setMatrix(existing.config.matrix);
+        widthSlider.setValue(existing.config.matrix[0].length);
+        invertToggle.setChecked(existing.config.mode === 'bicolor');
+      }
+    } else {
+      repoStatusBadge.textContent = 'New Repo';
+      repoStatusBadge.style.backgroundColor = 'var(--color-border)';
+      repoStatusBadge.style.color = 'var(--color-text-muted)';
+    }
+  } catch {
+    repoStatusBadge.textContent = 'Public Repo';
+  }
+}
+
+function setStepStatus(stepEl: HTMLElement, status: 'pending' | 'running' | 'success' | 'error', text?: string) {
+  stepEl.className = `step-item step-${status}`;
+  const icon = stepEl.querySelector('.step-icon') as HTMLElement;
+  const label = stepEl.querySelector('.step-label') as HTMLElement;
+
+  if (status === 'pending') icon.textContent = '○';
+  if (status === 'running') icon.textContent = '◐';
+  if (status === 'success') icon.textContent = '✓';
+  if (status === 'error') icon.textContent = '✕';
+
+  if (text) {
+    label.textContent = text;
+  }
+}
+
+btnDeploy.addEventListener('click', async () => {
+  if (!currentUser) {
+    authModal.style.display = 'flex';
+    return;
+  }
+
+  const token = getStoredToken();
+  if (!token) {
+    authModal.style.display = 'flex';
+    return;
+  }
+
+  const repoName = repoNameInput.value.trim() || 'gitstamp-art';
+  const owner = currentUser.login;
+
+  deployStepsContainer.style.display = 'flex';
+  btnDeploy.disabled = true;
+  btnDeploy.textContent = 'Deploying...';
+
+  setStepStatus(stepRepo, 'running', `1. Verifying repository @${owner}/${repoName}...`);
+  setStepStatus(stepFiles, 'pending');
+  setStepStatus(stepDispatch, 'pending');
+
+  try {
+    let repo = await checkRepoExists(token, owner, repoName);
+    if (!repo) {
+      setStepStatus(stepRepo, 'running', `1. Creating public repository @${owner}/${repoName}...`);
+      repo = await createPublicRepo(token, repoName);
+    }
+    setStepStatus(stepRepo, 'success', `1. Repository @${owner}/${repoName} ready`);
+
+    setStepStatus(stepFiles, 'running', '2. Committing engine files (art.json, render.mjs, workflow, README)...');
+
+    const artData = {
+      authorName: currentUser.login,
+      authorEmail: currentUser.noreply_email,
+      mode: currentMode === 'grayscale' ? 'grayscale' : 'bicolor',
+      matrix: matrixStore.getMatrix(),
+      updatedAt: new Date().toISOString()
+    };
+
+    const readmeContent = generateReadme(
+      matrixStore.getMatrix(),
+      currentUser.login,
+      window.location.href
+    );
+
+    const artSha = (await getFile(token, owner, repoName, 'art.json'))?.sha;
+    await putFile(
+      token,
+      owner,
+      repoName,
+      'art.json',
+      JSON.stringify(artData, null, 2),
+      'feat(gitstamp): configure contribution art',
+      artSha
+    );
+
+    const mjsSha = (await getFile(token, owner, repoName, 'scripts/render.mjs'))?.sha;
+    await putFile(
+      token,
+      owner,
+      repoName,
+      'scripts/render.mjs',
+      RENDER_MJS_TEMPLATE,
+      'feat(gitstamp): install automation engine',
+      mjsSha
+    );
+
+    const ymlSha = (await getFile(token, owner, repoName, '.github/workflows/render.yml'))?.sha;
+    await putFile(
+      token,
+      owner,
+      repoName,
+      '.github/workflows/render.yml',
+      RENDER_YML_TEMPLATE,
+      'feat(gitstamp): setup weekly self-centering workflow',
+      ymlSha
+    );
+
+    const readmeSha = (await getFile(token, owner, repoName, 'README.md'))?.sha;
+    await putFile(
+      token,
+      owner,
+      repoName,
+      'README.md',
+      readmeContent,
+      'docs(gitstamp): update artwork documentation',
+      readmeSha
+    );
+
+    setStepStatus(stepFiles, 'success', '2. Engine files committed successfully');
+
+    setStepStatus(stepDispatch, 'running', '3. Dispatching render workflow for first execution...');
+    await starRepo(token, 'kbtale', 'gitstamp');
+    await triggerWorkflow(token, owner, repoName, 'render.yml', repo.default_branch);
+    setStepStatus(stepDispatch, 'success', '3. Workflow dispatched! History rendering in progress');
+
+    btnDeploy.textContent = 'Deployment Complete!';
+    alert(`Success! GitStamp deployed to https://github.com/${owner}/${repoName}. The initial render workflow has been triggered and your logo will appear on your profile shortly!`);
+  } catch (err: any) {
+    alert(`Deployment failed: ${err.message || err}`);
+    if (stepRepo.className.includes('running')) {
+      setStepStatus(stepRepo, 'error', `1. Repository failed: ${err.message}`);
+    } else if (stepFiles.className.includes('running')) {
+      setStepStatus(stepFiles, 'error', `2. File sync failed: ${err.message}`);
+    } else {
+      setStepStatus(stepDispatch, 'error', `3. Workflow dispatch failed: ${err.message}`);
+    }
+  } finally {
+    btnDeploy.disabled = false;
+    btnDeploy.textContent = 'Deploy to My GitHub Profile';
+  }
+});
+
+async function loadServerConfig() {
+  try {
+    const res = await fetch('/api/config');
+    if (res.ok) {
+      const cfg = await res.json();
+      if (cfg.clientId && !pkceClientIdInput.value) {
+        pkceClientIdInput.value = cfg.clientId;
+      }
+      if (cfg.appSlug) {
+        appSlugContainer.style.display = 'block';
+        linkInstallApp.href = `https://github.com/apps/${cfg.appSlug}/installations/new`;
+      }
+    }
+  } catch {}
+}
+
+async function init() {
+  updateAuthDisplay();
+  await loadServerConfig();
+
+  const redirectUri = window.location.origin + window.location.pathname;
+  try {
+    const token = await handlePkceCallback({
+      clientId: DEFAULT_CLIENT_ID || pkceClientIdInput.value,
+      redirectUri
+    });
+    if (token) {
+      currentUser = await fetchUserProfile(token);
+      updateAuthDisplay();
+    }
+  } catch (err: any) {
+    console.error('PKCE callback error:', err);
+  }
+}
+
+init();
