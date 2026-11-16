@@ -54,7 +54,6 @@ const matrixStore = new MatrixStore(24);
 
 const authStatusContainer = document.getElementById('auth-status-container') as HTMLElement;
 const btnOpenAuth = document.getElementById('btn-open-auth') as HTMLButtonElement;
-const btnInstallApp = document.getElementById('btn-install-app') as HTMLAnchorElement;
 
 const uploadDropzone = document.getElementById('upload-dropzone') as HTMLElement;
 const dropzoneEmpty = document.getElementById('dropzone-empty') as HTMLElement;
@@ -101,10 +100,6 @@ const stepFiles = document.getElementById('step-files') as HTMLElement;
 const stepDispatch = document.getElementById('step-dispatch') as HTMLElement;
 
 profileYearLabel.textContent = String(new Date().getFullYear());
-
-if (btnInstallApp && activeAppSlug) {
-  btnInstallApp.href = `https://github.com/apps/${activeAppSlug}/installations/new`;
-}
 
 let isUserManualThreshold = false;
 
@@ -706,7 +701,11 @@ btnDeploy.addEventListener('click', async () => {
     btnDeploy.textContent = 'Deployment Complete!';
     alert(`Success! GitStamp deployed to https://github.com/${owner}/${repoName}. The initial render workflow has been triggered and your logo will appear on your profile shortly!`);
   } catch (err: any) {
-    alert(`Deployment failed: ${err.message || err}`);
+    if (err.message && (err.message.includes('integration') || err.message.includes('403') || err.message.includes('Not Found'))) {
+      alert(`Deployment failed: ${err.message}. If you have not yet installed the GitStamp GitHub App on your account, please install it at https://github.com/apps/${activeAppSlug}/installations/new`);
+    } else {
+      alert(`Deployment failed: ${err.message || err}`);
+    }
     if (stepRepo.className.includes('running')) {
       setStepStatus(stepRepo, 'error', `1. Repository failed: ${err.message}`);
     } else if (stepFiles.className.includes('running')) {
@@ -730,9 +729,6 @@ async function loadServerConfig() {
       }
       if (cfg.appSlug) {
         activeAppSlug = cfg.appSlug;
-        if (btnInstallApp) {
-          btnInstallApp.href = `https://github.com/apps/${cfg.appSlug}/installations/new`;
-        }
       }
     }
   } catch {}

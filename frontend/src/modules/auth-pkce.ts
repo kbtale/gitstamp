@@ -47,12 +47,16 @@ export async function initiatePkceLogin(config: PkceConfig): Promise<void> {
 
   const params = new URLSearchParams({
     client_id: config.clientId,
-    redirect_uri: config.redirectUri,
     response_type: 'code',
     state,
     code_challenge: challenge,
     code_challenge_method: 'S256'
   });
+
+  const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  if (isLocal && config.redirectUri) {
+    params.set('redirect_uri', config.redirectUri);
+  }
 
   window.location.href = `https://github.com/login/oauth/authorize?${params.toString()}`;
 }
@@ -78,6 +82,16 @@ export async function handlePkceCallback(config: PkceConfig): Promise<string | n
 
   window.history.replaceState({}, document.title, window.location.pathname);
 
+  const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  const bodyPayload: Record<string, string> = {
+    client_id: config.clientId,
+    code,
+    code_verifier: verifier
+  };
+  if (isLocal && config.redirectUri) {
+    bodyPayload.redirect_uri = config.redirectUri;
+  }
+
   try {
     const proxyRes = await fetch('/api/token', {
       method: 'POST',
@@ -85,12 +99,7 @@ export async function handlePkceCallback(config: PkceConfig): Promise<string | n
         Accept: 'application/json',
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        client_id: config.clientId,
-        code,
-        code_verifier: verifier,
-        redirect_uri: config.redirectUri
-      })
+      body: JSON.stringify(bodyPayload)
     });
 
     if (proxyRes.ok) {

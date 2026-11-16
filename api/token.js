@@ -13,9 +13,12 @@ export default async function handler(req, res) {
 
   const payload = {
     client_id: clientId,
-    code,
-    redirect_uri
+    code
   };
+
+  if (redirect_uri) {
+    payload.redirect_uri = redirect_uri;
+  }
 
   if (clientSecret) {
     payload.client_secret = clientSecret;
