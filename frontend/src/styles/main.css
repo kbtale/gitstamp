@@ -52,14 +52,16 @@ button, input, select {
 .brand-icon {
   width: 28px;
   height: 28px;
-  background: linear-gradient(135deg, #238636 0%, #39d353 100%);
-  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: white;
-  font-weight: 700;
-  font-size: 1rem;
+}
+
+.brand-icon svg {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  display: block;
 }
 
 .brand-title {
@@ -369,12 +371,12 @@ button, input, select {
 }
 
 .segmented-control {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  display: inline-flex;
+  align-items: center;
   background-color: var(--color-bg-base);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 2px;
+  border-radius: var(--radius-full);
+  padding: 3px;
   gap: 2px;
 }
 
@@ -382,18 +384,20 @@ button, input, select {
   background: none;
   border: none;
   color: var(--color-text-muted);
-  padding: 0.375rem 0.25rem;
-  border-radius: var(--radius-sm);
+  padding: 0.3125rem 0.75rem;
+  border-radius: var(--radius-full);
   font-size: 0.75rem;
   font-weight: 500;
   cursor: pointer;
-  transition: background-color var(--transition-fast), color var(--transition-fast);
+  white-space: nowrap;
+  transition: background-color var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .segmented-button.active {
   background-color: var(--color-bg-elevated);
   color: var(--color-text-main);
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  font-weight: 600;
 }
 
 .range-slider {
@@ -508,18 +512,19 @@ input:checked + .slider-knob:before {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-full);
   border: 1px solid var(--color-border);
   background-color: var(--color-bg-base);
   color: var(--color-text-main);
   cursor: pointer;
-  transition: background-color var(--transition-fast), border-color var(--transition-fast);
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
   flex-shrink: 0;
 }
 
 .theme-toggle-btn:hover {
   background-color: var(--color-bg-elevated);
   border-color: var(--color-text-muted);
+  transform: scale(1.05);
 }
 
 .theme-toggle-btn .sun-icon {
