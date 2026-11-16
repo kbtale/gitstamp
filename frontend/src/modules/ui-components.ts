@@ -194,21 +194,29 @@ export function createSlider({
     getValue: () => number;
   };
 
+  const initialPercent = Math.max(0, Math.min(100, Math.round(((initialValue - min) / (max - min)) * 100)));
+
   container.innerHTML = `
     <div class="control-label">
       <span>${label}</span>
       <span class="slider-display">${initialValue}</span>
     </div>
-    <input type="range" class="range-slider" min="${min}" max="${max}" value="${initialValue}" />
+    <input type="range" class="range-slider" min="${min}" max="${max}" value="${initialValue}" style="--slider-fill: ${initialPercent}%;" />
   `;
 
   const input = container.querySelector('input') as HTMLInputElement;
   const display = container.querySelector('.slider-display') as HTMLElement;
 
+  function updateVisualFill(val: number) {
+    const percent = Math.max(0, Math.min(100, Math.round(((val - min) / (max - min)) * 100)));
+    input.style.setProperty('--slider-fill', `${percent}%`);
+  }
+
   input.addEventListener('input', () => {
     const val = Number(input.value);
     api.setValue(val);
     display.textContent = String(val);
+    updateVisualFill(val);
     onChange(val);
   });
 
@@ -216,6 +224,7 @@ export function createSlider({
     const state = primitiveInstance.get() as { value: number };
     input.value = String(state.value);
     display.textContent = String(state.value);
+    updateVisualFill(state.value);
   });
 
   return {
@@ -223,6 +232,7 @@ export function createSlider({
       api.setValue(val);
       input.value = String(val);
       display.textContent = String(val);
+      updateVisualFill(val);
     },
     getValue() {
       return api.getValue();
