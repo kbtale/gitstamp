@@ -1,4 +1,4 @@
-import { ArtConfig, RepoDetails } from '../types';
+import { ArtConfig, RepoDetails, ContributionLevel, UserContributionData } from '../types';
 
 export function toBase64Utf8(str: string): string {
   const bytes = new TextEncoder().encode(str);
@@ -209,4 +209,79 @@ export async function starRepo(
       }
     });
   } catch {}
+}
+
+export async function fetchUserContributions(token: string): Promise<UserContributionData | null> {
+  const query = `
+    query {
+      viewer {
+        contributionsCollection {
+          contributionCalendar {
+            totalContributions
+            weeks {
+              contributionDays {
+                date
+                contributionCount
+                contributionLevel
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  try {
+    const res = await fetch('https://api.github.com/graphql', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'User-Agent': 'GitStamp'
+      },
+      body: JSON.stringify({ query })
+    });
+
+    if (!res.ok) {
+      return null;
+    }
+
+    const data = await res.json();
+    const calendar = data?.data?.viewer?.contributionsCollection?.contributionCalendar;
+    if (!calendar || !calendar.weeks) {
+      return null;
+    }
+
+    const levelMap: Record<string, ContributionLevel> = {
+      NONE: 0,
+      FIRST_QUARTILE: 1,
+      SECOND_QUARTILE: 2,
+      THIRD_QUARTILE: 3,
+      FOURTH_QUARTILE: 4
+    };
+
+    const targetWeeks = calendar.weeks.slice(-53);
+    const matrix: ContributionLevel[][] = [];
+
+    for (let c = 0; c < 53; c++) {
+      matrix[c] = [0, 0, 0, 0, 0, 0, 0];
+      const week = targetWeeks[c];
+      if (week && week.contributionDays) {
+        for (const day of week.contributionDays) {
+          const d = new Date(day.date + 'T00:00:00Z');
+          const dayOfWeek = d.getUTCDay();
+          if (dayOfWeek >= 0 && dayOfWeek < 7) {
+            matrix[c][dayOfWeek] = levelMap[day.contributionLevel] || 0;
+          }
+        }
+      }
+    }
+
+    return {
+      totalContributions: calendar.totalContributions || 0,
+      matrix
+    };
+  } catch {
+    return null;
+  }
 }

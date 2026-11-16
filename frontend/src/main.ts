@@ -17,7 +17,8 @@ import {
   putFile,
   triggerWorkflow,
   fetchExistingArt,
-  starRepo
+  starRepo,
+  fetchUserContributions
 } from './modules/github-api';
 import {
   RENDER_MJS_TEMPLATE,
@@ -45,6 +46,9 @@ let currentInvert: boolean = false;
 let currentTheme: AppTheme = 'dark';
 let currentViewMode: 'profile' | 'editor' = 'profile';
 let highlightBounds: boolean = true;
+let userProfileCalendar: ContributionLevel[][] | null = null;
+let userTotalContributions: number | null = null;
+let showProfileContributions: boolean = true;
 
 const matrixStore = new MatrixStore(24);
 
@@ -70,6 +74,7 @@ const btnThemeToggle = document.getElementById('btn-theme-toggle') as HTMLButton
 const btnContributionSettings = document.getElementById('btn-contribution-settings') as HTMLButtonElement;
 const settingsDropdownMenu = document.getElementById('settings-dropdown-menu') as HTMLElement;
 const settingHighlightBounds = document.getElementById('setting-highlight-bounds') as HTMLInputElement;
+const settingProfileContributions = document.getElementById('setting-profile-contributions') as HTMLInputElement;
 const settingBtnResetArt = document.getElementById('setting-btn-reset-art') as HTMLButtonElement;
 const targetRepoLink = document.getElementById('target-repo-link') as HTMLAnchorElement;
 const dayLabelsCol = document.getElementById('day-labels-col') as HTMLElement;
@@ -272,18 +277,23 @@ function renderCurrentView(matrix: ContributionLevel[][]) {
 
       for (let r = 0; r < 7; r++) {
         let level: ContributionLevel = 0;
+        let isArtCell = false;
+
         if (isArtworkCol) {
           level = matrix[r][artCol] || 0;
+          isArtCell = true;
+        } else if (showProfileContributions && userProfileCalendar) {
+          level = userProfileCalendar[c]?.[r] || 0;
         }
         totalCommits += weightMap[level] || 0;
 
         const cell = document.createElement('div');
-        cell.className = `cell cell-level-${level} ${isArtworkCol ? 'cell-in-artwork' : ''}`;
+        cell.className = `cell cell-level-${level} ${isArtCell ? 'cell-in-artwork' : ''}`;
         cell.dataset.row = String(r);
         cell.dataset.col = String(c);
         cell.setAttribute('role', 'gridcell');
 
-        if (isArtworkCol) {
+        if (isArtCell) {
           cell.title = `Artwork [Row ${r + 1}, Col ${artCol + 1}]: Level ${level}`;
           cell.addEventListener('pointerdown', (e) => {
             e.preventDefault();
@@ -293,7 +303,8 @@ function renderCurrentView(matrix: ContributionLevel[][]) {
             matrixStore.handlePointerEnter(r, artCol);
           });
         } else {
-          cell.title = `Profile Background [Col ${c + 1}]`;
+          const bgLevel = userProfileCalendar ? (userProfileCalendar[c]?.[r] || 0) : 0;
+          cell.title = bgLevel > 0 ? `Profile Activity: Level ${bgLevel}` : `Profile Background [Col ${c + 1}]`;
         }
 
         contributionMatrix.appendChild(cell);
@@ -301,6 +312,12 @@ function renderCurrentView(matrix: ContributionLevel[][]) {
     }
 
     graphDimensionsDisplay.textContent = `Pattern: 7 × ${artWidth} (Centered in 53-Week Profile)`;
+
+    if (userTotalContributions !== null && showProfileContributions) {
+      profileTotalCommits.textContent = `${userTotalContributions.toLocaleString()} contributions in the last year`;
+    } else {
+      profileTotalCommits.textContent = `${totalCommits.toLocaleString()} contributions in the last year`;
+    }
   } else {
     graphPreviewContainer.classList.add('editor-mode-wrapper');
     graphPreviewContainer.classList.remove('highlight-bounds');
@@ -457,6 +474,13 @@ settingHighlightBounds.addEventListener('change', () => {
   renderCurrentView(matrixStore.getMatrix());
 });
 
+if (settingProfileContributions) {
+  settingProfileContributions.addEventListener('change', () => {
+    showProfileContributions = settingProfileContributions.checked;
+    renderCurrentView(matrixStore.getMatrix());
+  });
+}
+
 settingBtnResetArt.addEventListener('click', () => {
   matrixStore.clear();
   settingsDropdownMenu.style.display = 'none';
@@ -470,6 +494,24 @@ function updateTargetRepoLink() {
   targetRepoLink.textContent = url;
 }
 repoNameInput.addEventListener('input', updateTargetRepoLink);
+
+async function loadUserContributions() {
+  const token = getStoredToken();
+  if (!token) {
+    userProfileCalendar = null;
+    userTotalContributions = null;
+    renderCurrentView(matrixStore.getMatrix());
+    return;
+  }
+  try {
+    const data = await fetchUserContributions(token);
+    if (data) {
+      userProfileCalendar = data.matrix;
+      userTotalContributions = data.totalContributions;
+      renderCurrentView(matrixStore.getMatrix());
+    }
+  } catch {}
+}
 
 function updateAuthDisplay() {
   if (currentUser) {
@@ -485,17 +527,24 @@ function updateAuthDisplay() {
     btnLogout?.addEventListener('click', () => {
       clearAuth();
       currentUser = null;
+      userProfileCalendar = null;
+      userTotalContributions = null;
       updateAuthDisplay();
       checkExistingUserRepo();
       updateTargetRepoLink();
+      renderCurrentView(matrixStore.getMatrix());
     });
     checkExistingUserRepo();
     updateTargetRepoLink();
+    loadUserContributions();
   } else {
     authStatusContainer.innerHTML = '';
     btnOpenAuth.style.display = 'inline-flex';
     repoStatusBadge.textContent = 'Public Repo';
+    userProfileCalendar = null;
+    userTotalContributions = null;
     updateTargetRepoLink();
+    renderCurrentView(matrixStore.getMatrix());
   }
 }
 
@@ -690,8 +739,18 @@ async function loadServerConfig() {
 }
 
 async function init() {
-  updateAuthDisplay();
   await loadServerConfig();
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const setupAction = urlParams.get('setup_action');
+  if (setupAction === 'install' && !getStoredToken()) {
+    const redirectUri = window.location.origin + window.location.pathname;
+    await initiatePkceLogin({
+      clientId: activeClientId,
+      redirectUri
+    });
+    return;
+  }
 
   const redirectUri = window.location.origin + window.location.pathname;
   try {
@@ -701,11 +760,12 @@ async function init() {
     });
     if (token) {
       currentUser = await fetchUserProfile(token);
-      updateAuthDisplay();
     }
   } catch (err: any) {
     console.error('PKCE callback error:', err);
   }
+
+  updateAuthDisplay();
 }
 
 init();
