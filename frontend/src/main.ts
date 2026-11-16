@@ -116,6 +116,8 @@ if (DEFAULT_APP_SLUG) {
   linkInstallApp.href = `https://github.com/apps/${DEFAULT_APP_SLUG}/installations/new`;
 }
 
+let isUserManualThreshold = false;
+
 const modeControl = createSegmentedControl<ProcessingMode>({
   container: modeContainer,
   options: [
@@ -126,6 +128,9 @@ const modeControl = createSegmentedControl<ProcessingMode>({
   initialValue: 'auto',
   onChange: (mode) => {
     currentMode = mode;
+    if (mode === 'auto') {
+      isUserManualThreshold = false;
+    }
     reprocessCurrentImage();
   }
 });
@@ -138,7 +143,12 @@ const thresholdSlider = createSlider({
   label: 'Threshold',
   onChange: (val) => {
     currentThreshold = val;
-    reprocessCurrentImage();
+    isUserManualThreshold = true;
+    if (currentMode === 'auto') {
+      currentMode = 'bicolor';
+      modeControl.setValue('bicolor');
+    }
+    reprocessCurrentImage(undefined, true);
   }
 });
 
@@ -175,8 +185,8 @@ btnThemeToggle.addEventListener('click', () => {
 createSegmentedControl<'profile' | 'editor'>({
   container: viewModeContainer,
   options: [
-    { label: 'Profile (53 Wks)', value: 'profile' },
-    { label: 'Editor (7×N)', value: 'editor' }
+    { label: '53-Week Profile', value: 'profile' },
+    { label: '7×N Canvas', value: 'editor' }
   ],
   initialValue: currentViewMode,
   onChange: (view) => {
@@ -223,7 +233,7 @@ function renderMonthLabels() {
   }
 }
 
-function reprocessCurrentImage(customWidth?: number) {
+function reprocessCurrentImage(customWidth?: number, isManualThresholdChange?: boolean) {
   if (!currentImage) {
     return;
   }
@@ -235,7 +245,8 @@ function reprocessCurrentImage(customWidth?: number) {
   });
 
   matrixStore.setMatrix(result.matrix);
-  if (currentMode === 'auto') {
+  if (currentMode === 'auto' && !isUserManualThreshold && !isManualThresholdChange) {
+    currentThreshold = result.calculatedThreshold;
     thresholdSlider.setValue(result.calculatedThreshold);
   }
 }
@@ -420,6 +431,7 @@ async function handleFileUpload(file: File) {
       customWidth: targetWidth
     });
 
+    isUserManualThreshold = false;
     currentThreshold = result.calculatedThreshold;
     thresholdSlider.setValue(result.calculatedThreshold);
 
