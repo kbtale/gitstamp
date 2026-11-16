@@ -42,6 +42,8 @@ let currentThreshold: number = 128;
 let currentInvert: boolean = false;
 let currentTheme: AppTheme = 'dark';
 let currentViewMode: 'profile' | 'editor' = 'profile';
+let highlightBounds: boolean = true;
+let simulatePrivate: boolean = false;
 
 const matrixStore = new MatrixStore(24);
 
@@ -62,14 +64,27 @@ const patInput = document.getElementById('pat-input') as HTMLInputElement;
 const btnSaveToken = document.getElementById('btn-save-token') as HTMLButtonElement;
 
 const uploadDropzone = document.getElementById('upload-dropzone') as HTMLElement;
+const dropzoneEmpty = document.getElementById('dropzone-empty') as HTMLElement;
+const dropzoneActive = document.getElementById('dropzone-active') as HTMLElement;
+const dropzoneThumb = document.getElementById('dropzone-thumb') as HTMLImageElement;
+const dropzoneFilename = document.getElementById('dropzone-filename') as HTMLElement;
+const dropzoneDims = document.getElementById('dropzone-dims') as HTMLElement;
+const btnClearImage = document.getElementById('btn-clear-image') as HTMLButtonElement;
 const fileInput = document.getElementById('file-input') as HTMLInputElement;
 
 const modeContainer = document.getElementById('mode-control-container') as HTMLElement;
 const thresholdContainer = document.getElementById('threshold-control-container') as HTMLElement;
 const invertContainer = document.getElementById('invert-control-container') as HTMLElement;
 const widthContainer = document.getElementById('width-control-container') as HTMLElement;
-const themeContainer = document.getElementById('theme-control-container') as HTMLElement;
 const viewModeContainer = document.getElementById('view-mode-container') as HTMLElement;
+const btnThemeToggle = document.getElementById('btn-theme-toggle') as HTMLButtonElement;
+const btnContributionSettings = document.getElementById('btn-contribution-settings') as HTMLButtonElement;
+const settingsDropdownMenu = document.getElementById('settings-dropdown-menu') as HTMLElement;
+const settingHighlightBounds = document.getElementById('setting-highlight-bounds') as HTMLInputElement;
+const settingPrivateCommits = document.getElementById('setting-private-commits') as HTMLInputElement;
+const settingBtnResetArt = document.getElementById('setting-btn-reset-art') as HTMLButtonElement;
+const targetRepoLink = document.getElementById('target-repo-link') as HTMLAnchorElement;
+const dayLabelsCol = document.getElementById('day-labels-col') as HTMLElement;
 
 const brushContainer = document.getElementById('brush-palette-container') as HTMLElement;
 const btnClearGrid = document.getElementById('btn-clear-grid') as HTMLButtonElement;
@@ -151,17 +166,10 @@ const widthSlider = createSlider({
   }
 });
 
-createSegmentedControl<AppTheme>({
-  container: themeContainer,
-  options: [
-    { label: 'Dark', value: 'dark' },
-    { label: 'Light', value: 'light' }
-  ],
-  initialValue: currentTheme,
-  onChange: (theme) => {
-    currentTheme = theme;
-    graphPreviewContainer.setAttribute('data-graph-theme', currentTheme);
-  }
+btnThemeToggle.addEventListener('click', () => {
+  currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+  graphPreviewContainer.setAttribute('data-graph-theme', currentTheme);
+  btnThemeToggle.classList.toggle('is-light', currentTheme === 'light');
 });
 
 createSegmentedControl<'profile' | 'editor'>({
@@ -254,6 +262,9 @@ function renderCurrentView(matrix: ContributionLevel[][]) {
   };
 
   if (currentViewMode === 'profile') {
+    graphPreviewContainer.classList.remove('editor-mode-wrapper');
+    graphPreviewContainer.classList.toggle('highlight-bounds', highlightBounds);
+    dayLabelsCol.innerHTML = '<span></span><span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span>';
     monthLabelsRow.style.display = 'grid';
     renderMonthLabels();
     contributionMatrix.className = 'grid-53';
@@ -264,7 +275,12 @@ function renderCurrentView(matrix: ContributionLevel[][]) {
       const artCol = isArtworkCol ? c - startCol : -1;
 
       for (let r = 0; r < 7; r++) {
-        const level: ContributionLevel = isArtworkCol ? (matrix[r][artCol] || 0) : 0;
+        let level: ContributionLevel = 0;
+        if (isArtworkCol) {
+          level = matrix[r][artCol] || 0;
+        } else if (simulatePrivate) {
+          level = ((c * 7 + r * 13) % 7 === 0) ? 1 : ((c * 7 + r * 13) % 19 === 0 ? 2 : 0);
+        }
         totalCommits += weightMap[level] || 0;
 
         const cell = document.createElement('div');
@@ -292,9 +308,20 @@ function renderCurrentView(matrix: ContributionLevel[][]) {
 
     graphDimensionsDisplay.textContent = `Pattern: 7 × ${artWidth} (Centered in 53-Week Profile)`;
   } else {
-    monthLabelsRow.style.display = 'none';
+    graphPreviewContainer.classList.add('editor-mode-wrapper');
+    graphPreviewContainer.classList.remove('highlight-bounds');
+    dayLabelsCol.innerHTML = '<span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>';
+    monthLabelsRow.style.display = 'flex';
+    monthLabelsRow.innerHTML = '';
+    for (let c = 0; c < artWidth; c++) {
+      const colLabel = document.createElement('div');
+      colLabel.className = 'col-number-label';
+      colLabel.textContent = (c === 0 || (c + 1) % 5 === 0 || c === artWidth - 1) ? String(c + 1) : '';
+      monthLabelsRow.appendChild(colLabel);
+    }
+
     contributionMatrix.className = 'contribution-matrix';
-    contributionMatrix.style.gridTemplateColumns = `repeat(${artWidth}, var(--cell-size))`;
+    contributionMatrix.style.gridTemplateColumns = `repeat(${artWidth}, 24px)`;
 
     for (let c = 0; c < artWidth; c++) {
       for (let r = 0; r < artHeight; r++) {
@@ -302,11 +329,12 @@ function renderCurrentView(matrix: ContributionLevel[][]) {
         totalCommits += weightMap[level] || 0;
 
         const cell = document.createElement('div');
-        cell.className = `cell cell-level-${level}`;
+        cell.className = `cell editor-cell cell-level-${level}`;
         cell.dataset.row = String(r);
         cell.dataset.col = String(c);
         cell.setAttribute('role', 'gridcell');
         cell.setAttribute('aria-label', `Row ${r + 1}, Col ${c + 1}, Level ${level}`);
+        cell.title = `Cell [Row ${r + 1}, Col ${c + 1}]: Level ${level}`;
 
         cell.addEventListener('pointerdown', (e) => {
           e.preventDefault();
@@ -373,6 +401,12 @@ async function handleFileUpload(file: File) {
     const img = await loadImageFromFile(file);
     currentImage = img;
 
+    dropzoneThumb.src = URL.createObjectURL(file);
+    dropzoneFilename.textContent = file.name;
+    dropzoneDims.textContent = `${img.naturalWidth} × ${img.naturalHeight} px (${Math.round(file.size / 1024)} KB)`;
+    dropzoneEmpty.style.display = 'none';
+    dropzoneActive.style.display = 'flex';
+
     const ratio = img.naturalWidth / Math.max(1, img.naturalHeight);
     let targetWidth = Math.round(7 * ratio);
     targetWidth = Math.max(1, Math.min(44, targetWidth));
@@ -399,13 +433,61 @@ async function handleFileUpload(file: File) {
   }
 }
 
+btnClearImage.addEventListener('click', (e) => {
+  e.stopPropagation();
+  currentImage = null;
+  fileInput.value = '';
+  dropzoneEmpty.style.display = 'block';
+  dropzoneActive.style.display = 'none';
+  matrixStore.clear();
+  renderCurrentView(matrixStore.getMatrix());
+});
+
+btnContributionSettings.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const isOpen = settingsDropdownMenu.style.display === 'flex';
+  settingsDropdownMenu.style.display = isOpen ? 'none' : 'flex';
+  btnContributionSettings.setAttribute('aria-expanded', String(!isOpen));
+});
+
+document.addEventListener('click', (e) => {
+  if (!settingsDropdownMenu.contains(e.target as Node) && e.target !== btnContributionSettings) {
+    settingsDropdownMenu.style.display = 'none';
+    btnContributionSettings.setAttribute('aria-expanded', 'false');
+  }
+});
+
+settingHighlightBounds.addEventListener('change', () => {
+  highlightBounds = settingHighlightBounds.checked;
+  renderCurrentView(matrixStore.getMatrix());
+});
+
+settingPrivateCommits.addEventListener('change', () => {
+  simulatePrivate = settingPrivateCommits.checked;
+  renderCurrentView(matrixStore.getMatrix());
+});
+
+settingBtnResetArt.addEventListener('click', () => {
+  matrixStore.clear();
+  settingsDropdownMenu.style.display = 'none';
+});
+
+function updateTargetRepoLink() {
+  const repoName = repoNameInput.value.trim() || 'gitstamp-art';
+  const username = currentUser ? currentUser.login : ':username';
+  const url = `https://github.com/${username}/${repoName}`;
+  targetRepoLink.href = url;
+  targetRepoLink.textContent = url;
+}
+repoNameInput.addEventListener('input', updateTargetRepoLink);
+
 function updateAuthDisplay() {
   if (currentUser) {
     btnOpenAuth.style.display = 'none';
     authStatusContainer.innerHTML = `
       <div class="user-profile-badge">
         <img src="${currentUser.avatar_url}" alt="${currentUser.login}" class="user-avatar" />
-        <span>@${currentUser.login}</span>
+        <a href="https://github.com/${currentUser.login}" target="_blank" rel="noopener noreferrer" style="color: inherit; font-weight: 500;">@${currentUser.login}</a>
         <button type="button" class="btn btn-secondary btn-sm" id="btn-logout" style="padding: 0.125rem 0.375rem; margin-left: 0.25rem;">Logout</button>
       </div>
     `;
@@ -415,12 +497,15 @@ function updateAuthDisplay() {
       currentUser = null;
       updateAuthDisplay();
       checkExistingUserRepo();
+      updateTargetRepoLink();
     });
     checkExistingUserRepo();
+    updateTargetRepoLink();
   } else {
     authStatusContainer.innerHTML = '';
     btnOpenAuth.style.display = 'inline-flex';
     repoStatusBadge.textContent = 'Public Repo';
+    updateTargetRepoLink();
   }
 }
 

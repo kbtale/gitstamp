@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>GitStamp — GitHub Contribution Graph Art Studio</title>
+  <title>GitStamp: GitHub Contribution Graph Art Studio</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23238636'/><rect x='20' y='20' width='25' height='25' rx='5' fill='%2339d353'/><rect x='55' y='20' width='25' height='25' rx='5' fill='%2339d353'/><rect x='20' y='55' width='25' height='25' rx='5' fill='%2339d353'/><rect x='55' y='55' width='25' height='25' rx='5' fill='%230e4429'/></svg>" />
 </head>
 <body>
@@ -14,8 +14,16 @@
         <span>GitStamp</span>
         <span class="brand-badge">Contribution Studio</span>
       </div>
+      <a href="https://github.com/kbtale" target="_blank" rel="noopener noreferrer" class="author-tag">by @kbtale</a>
     </div>
     <div class="header-actions">
+      <a href="https://github.com/kbtale/gitstamp" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm repo-btn" title="View Source on GitHub">
+        <svg class="octicon" height="16" viewBox="0 0 16 16" width="16" fill="currentColor">
+          <path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"></path>
+        </svg>
+        <span>kbtale/gitstamp</span>
+        <span class="star-badge">⭐ Star</span>
+      </a>
       <div id="auth-status-container"></div>
       <button type="button" class="btn btn-secondary btn-sm" id="btn-open-auth">
         Sign In with GitHub
@@ -38,9 +46,19 @@
         </div>
 
         <div class="upload-dropzone" id="upload-dropzone">
-          <div class="upload-icon">📁</div>
-          <div class="upload-prompt">Click or drag image here</div>
-          <div class="upload-hint">PNG, JPG, SVG, WEBP (transparent logos recommended)</div>
+          <div class="dropzone-empty" id="dropzone-empty">
+            <div class="upload-icon">📁</div>
+            <div class="upload-prompt">Click or drag image here</div>
+            <div class="upload-hint">PNG, JPG, SVG, WEBP (transparent logos recommended)</div>
+          </div>
+          <div class="dropzone-active" id="dropzone-active" style="display: none;">
+            <img id="dropzone-thumb" class="dropzone-thumb" alt="Uploaded preview" />
+            <div class="dropzone-meta">
+              <span class="dropzone-filename" id="dropzone-filename">image.png</span>
+              <span class="dropzone-dims" id="dropzone-dims">256 × 256 px</span>
+              <button type="button" class="btn-dropzone-remove" id="btn-clear-image" title="Remove image">✕ Remove</button>
+            </div>
+          </div>
           <input type="file" id="file-input" class="file-input-hidden" accept="image/png,image/jpeg,image/svg+xml,image/webp" />
         </div>
 
@@ -68,9 +86,16 @@
           <button type="button" class="btn btn-secondary btn-sm" id="btn-invert-grid">Invert</button>
           <button type="button" class="btn btn-secondary btn-sm" id="btn-undo-grid">Undo</button>
           <button type="button" class="btn btn-secondary btn-sm" id="btn-redo-grid">Redo</button>
-          <div style="margin-left: auto; display: flex; align-items: center; gap: 0.5rem;">
+          <div class="view-controls" style="margin-left: auto; display: flex; align-items: center; gap: 0.5rem;">
             <div id="view-mode-container"></div>
-            <div id="theme-control-container"></div>
+            <button type="button" class="theme-toggle-btn" id="btn-theme-toggle" aria-label="Toggle dark/light theme" title="Toggle dark/light theme">
+              <svg class="sun-icon" height="16" width="16" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM8 0a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0V.75A.75.75 0 0 1 8 0ZM8 13a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 13ZM3.05 3.05a.75.75 0 0 1 1.06 0l1.06 1.06a.75.75 0 0 1-1.06 1.06L3.05 4.11a.75.75 0 0 1 0-1.06Zm7.78 7.78a.75.75 0 0 1 1.06 0l1.06 1.06a.75.75 0 0 1-1.06 1.06l-1.06-1.06a.75.75 0 0 1 0-1.06ZM0 8a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 0 1.5H.75A.75.75 0 0 1 0 8Zm13 0a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 0 1.5h-1.5A.75.75 0 0 1 13 8ZM4.11 12.95a.75.75 0 0 1 0-1.06l1.06-1.06a.75.75 0 0 1 1.06 1.06l-1.06 1.06a.75.75 0 0 1-1.06 0Zm7.78-7.78a.75.75 0 0 1 0-1.06l1.06-1.06a.75.75 0 1 1 1.06 1.06l-1.06 1.06a.75.75 0 0 1-1.06 0Z"></path>
+              </svg>
+              <svg class="moon-icon" height="16" width="16" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M9.598 1.591a.749.749 0 0 1 .785-.175 7.001 7.001 0 1 1-8.967 8.967.75.75 0 0 1 .961-.96 5.5 5.5 0 0 0 7.046-7.046.75.75 0 0 1 .175-.786Zm1.616 1.945a7 7 0 0 1-7.678 7.678A5.499 5.499 0 0 0 11.214 3.536Z"></path>
+              </svg>
+            </button>
           </div>
         </div>
 
@@ -80,7 +105,26 @@
               <span id="profile-total-commits">0 contributions in the last year</span>
             </div>
             <div class="profile-card-actions">
-              <span>Contribution settings ▾</span>
+              <div class="settings-dropdown-wrapper">
+                <button type="button" class="btn-contribution-settings" id="btn-contribution-settings" aria-expanded="false" aria-haspopup="true">
+                  <span>Contribution settings</span>
+                  <span class="dropdown-caret">▾</span>
+                </button>
+                <div class="settings-dropdown-menu" id="settings-dropdown-menu" style="display: none;">
+                  <label class="dropdown-item">
+                    <input type="checkbox" id="setting-highlight-bounds" checked />
+                    <span>Highlight artwork bounds</span>
+                  </label>
+                  <label class="dropdown-item">
+                    <input type="checkbox" id="setting-private-commits" />
+                    <span>Simulate private commits</span>
+                  </label>
+                  <div class="dropdown-divider"></div>
+                  <button type="button" class="dropdown-action-btn" id="setting-btn-reset-art">
+                    Clear artwork matrix
+                  </button>
+                </div>
+              </div>
               <span class="profile-year-pill" id="profile-year-label">2026</span>
             </div>
           </div>
@@ -88,7 +132,7 @@
           <div class="full-calendar-wrapper">
             <div class="month-labels-row" id="month-labels-row"></div>
             <div class="calendar-body">
-              <div class="day-labels-col">
+              <div class="day-labels-col" id="day-labels-col">
                 <span></span>
                 <span>Mon</span>
                 <span></span>
@@ -121,7 +165,10 @@
           <div class="form-group">
             <label class="control-label" for="repo-name-input">Repository Name</label>
             <input type="text" id="repo-name-input" class="text-input" value="gitstamp-art" placeholder="gitstamp-art" />
-            <span class="form-hint">Created as public repository on your account so contributions appear without special profile settings.</span>
+            <div class="repo-target-preview">
+              <span>Target repository: </span>
+              <a href="#" id="target-repo-link" target="_blank" rel="noopener noreferrer">https://github.com/:username/gitstamp-art</a>
+            </div>
           </div>
 
           <button type="button" class="btn btn-primary btn-lg" id="btn-deploy">
@@ -194,7 +241,21 @@
   </div>
 
   <footer class="app-footer">
-    <p>GitStamp — GitHub Contribution Graph Art Studio.</p>
+    <div class="footer-content">
+      <div class="footer-left">
+        <svg class="octicon" height="20" viewBox="0 0 16 16" width="20" fill="currentColor">
+          <path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"></path>
+        </svg>
+        <span>GitStamp Studio</span>
+        <span class="footer-dot">·</span>
+        <a href="https://github.com/kbtale" target="_blank" rel="noopener noreferrer">Built by @kbtale</a>
+      </div>
+      <div class="footer-links">
+        <a href="https://github.com/kbtale/gitstamp" target="_blank" rel="noopener noreferrer">Source Code</a>
+        <a href="https://github.com/kbtale/gitstamp/blob/main/README.md" target="_blank" rel="noopener noreferrer">Documentation</a>
+        <a href="https://github.com/kbtale/gitstamp/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+      </div>
+    </div>
   </footer>
 
   <script type="module" src="/src/main.ts"></script>
