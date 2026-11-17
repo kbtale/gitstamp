@@ -89,7 +89,9 @@ const monthLabelsRow = document.getElementById('month-labels-row') as HTMLElemen
 const contributionMatrix = document.getElementById('contribution-matrix') as HTMLElement;
 const graphDimensionsDisplay = document.getElementById('graph-dimensions-display') as HTMLElement;
 const profileTotalCommits = document.getElementById('profile-total-commits') as HTMLElement;
-const profileYearLabel = document.getElementById('profile-year-label') as HTMLElement;
+const yearSelectorContainer = document.getElementById('year-selector-container') as HTMLElement;
+const targetYearsContainer = document.getElementById('target-years-container') as HTMLElement;
+const syncAllYearsCheckbox = document.getElementById('sync-all-years-checkbox') as HTMLInputElement;
 
 const repoNameInput = document.getElementById('repo-name-input') as HTMLInputElement;
 const repoStatusBadge = document.getElementById('repo-status-badge') as HTMLElement;
@@ -99,7 +101,103 @@ const stepRepo = document.getElementById('step-repo') as HTMLElement;
 const stepFiles = document.getElementById('step-files') as HTMLElement;
 const stepDispatch = document.getElementById('step-dispatch') as HTMLElement;
 
-profileYearLabel.textContent = String(new Date().getFullYear());
+const currentYear = new Date().getFullYear();
+const availableYears: number[] = [
+  currentYear,
+  currentYear - 1,
+  currentYear - 2,
+  currentYear - 3,
+  currentYear - 4
+];
+let selectedTargetYears: Set<number> = new Set([currentYear]);
+let activePreviewYear: number = currentYear;
+let syncAllYears: boolean = true;
+const yearPatterns: Map<number, ContributionLevel[][]> = new Map();
+const yearContributionsCache: Map<number, { matrix: ContributionLevel[][]; totalContributions: number }> = new Map();
+
+function renderYearSelector() {
+  if (!yearSelectorContainer) {
+    return;
+  }
+  yearSelectorContainer.innerHTML = '';
+  for (const yr of availableYears) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `year-pill ${yr === activePreviewYear ? 'active' : ''}`;
+    btn.textContent = String(yr);
+    btn.title = yr === currentYear ? `View rolling current year (${yr})` : `View calendar year ${yr}`;
+    btn.addEventListener('click', async () => {
+      if (yr === activePreviewYear) {
+        return;
+      }
+      if (!syncAllYears) {
+        yearPatterns.set(activePreviewYear, JSON.parse(JSON.stringify(matrixStore.getMatrix())));
+      }
+      activePreviewYear = yr;
+      if (!syncAllYears && yearPatterns.has(yr)) {
+        matrixStore.setMatrix(yearPatterns.get(yr)!);
+      }
+      renderYearSelector();
+      await loadUserContributions(activePreviewYear);
+      renderCurrentView(matrixStore.getMatrix());
+    });
+    yearSelectorContainer.appendChild(btn);
+  }
+}
+
+function renderTargetYearsPills() {
+  if (!targetYearsContainer) {
+    return;
+  }
+  targetYearsContainer.innerHTML = '';
+  for (const yr of availableYears) {
+    const isSelected = selectedTargetYears.has(yr);
+    const chip = document.createElement('label');
+    chip.className = `target-year-chip ${isSelected ? 'selected' : ''}`;
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = isSelected;
+
+    checkbox.addEventListener('change', () => {
+      if (checkbox.checked) {
+        selectedTargetYears.add(yr);
+        if (syncAllYears) {
+          yearPatterns.set(yr, JSON.parse(JSON.stringify(matrixStore.getMatrix())));
+        }
+      } else {
+        if (selectedTargetYears.size <= 1) {
+          checkbox.checked = true;
+          return;
+        }
+        selectedTargetYears.delete(yr);
+      }
+      chip.classList.toggle('selected', checkbox.checked);
+    });
+
+    const labelSpan = document.createElement('span');
+    labelSpan.textContent = yr === currentYear ? `${yr} (Rolling)` : String(yr);
+
+    chip.appendChild(checkbox);
+    chip.appendChild(labelSpan);
+    targetYearsContainer.appendChild(chip);
+  }
+}
+
+renderYearSelector();
+renderTargetYearsPills();
+
+if (syncAllYearsCheckbox) {
+  syncAllYearsCheckbox.addEventListener('change', () => {
+    syncAllYears = syncAllYearsCheckbox.checked;
+    if (syncAllYears) {
+      const currentCanvasMatrix = matrixStore.getMatrix();
+      for (const yr of selectedTargetYears) {
+        yearPatterns.set(yr, JSON.parse(JSON.stringify(currentCanvasMatrix)));
+      }
+    }
+  });
+}
 
 let isUserManualThreshold = false;
 
@@ -188,16 +286,24 @@ createBrushPalette({
   }
 });
 
-function renderMonthLabels() {
+function renderMonthLabels(year: number = activePreviewYear) {
   monthLabelsRow.innerHTML = '';
-  const now = new Date();
-  const currentDay = now.getUTCDay();
-  const currentSunday = new Date(Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    now.getUTCDate() - currentDay
-  ));
-  const col0Sunday = new Date(currentSunday.getTime() - 52 * 7 * 86400000);
+  let col0Sunday: Date;
+
+  if (year === currentYear) {
+    const now = new Date();
+    const currentDay = now.getUTCDay();
+    const currentSunday = new Date(Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate() - currentDay
+    ));
+    col0Sunday = new Date(currentSunday.getTime() - 52 * 7 * 86400000);
+  } else {
+    const jan1 = new Date(Date.UTC(year, 0, 1));
+    const jan1Day = jan1.getUTCDay();
+    col0Sunday = new Date(Date.UTC(year, 0, 1 - jan1Day));
+  }
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
   let lastMonth = -1;
@@ -262,7 +368,7 @@ function renderCurrentView(matrix: ContributionLevel[][]) {
     graphPreviewContainer.classList.toggle('highlight-bounds', highlightBounds);
     dayLabelsCol.innerHTML = '<span></span><span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span>';
     monthLabelsRow.style.display = 'grid';
-    renderMonthLabels();
+    renderMonthLabels(activePreviewYear);
     contributionMatrix.className = 'grid-53';
     contributionMatrix.style.gridTemplateColumns = 'repeat(53, var(--cell-size))';
 
@@ -308,10 +414,14 @@ function renderCurrentView(matrix: ContributionLevel[][]) {
 
     graphDimensionsDisplay.textContent = `Pattern: 7 × ${artWidth} (Centered in 53-Week Profile)`;
 
+    const commitsLabel = activePreviewYear === currentYear
+      ? 'contributions in the last year'
+      : `contributions in ${activePreviewYear}`;
+
     if (userTotalContributions !== null && showProfileContributions) {
-      profileTotalCommits.textContent = `${userTotalContributions.toLocaleString()} contributions in the last year`;
+      profileTotalCommits.textContent = `${userTotalContributions.toLocaleString()} ${commitsLabel}`;
     } else {
-      profileTotalCommits.textContent = `${totalCommits.toLocaleString()} contributions in the last year`;
+      profileTotalCommits.textContent = `${totalCommits.toLocaleString()} ${commitsLabel}`;
     }
   } else {
     graphPreviewContainer.classList.add('editor-mode-wrapper');
@@ -358,11 +468,21 @@ function renderCurrentView(matrix: ContributionLevel[][]) {
     graphDimensionsDisplay.textContent = `Editor Mode: 7 × ${artWidth} (${7 * artWidth} cells)`;
   }
 
-  profileTotalCommits.textContent = `${totalCommits.toLocaleString()} contributions in the last year`;
+  const commitsLabel = activePreviewYear === currentYear
+    ? 'contributions in the last year'
+    : `contributions in ${activePreviewYear}`;
+  profileTotalCommits.textContent = `${totalCommits.toLocaleString()} ${commitsLabel}`;
   updateHistoryButtons();
 }
 
 matrixStore.subscribe((matrix) => {
+  if (syncAllYears) {
+    for (const yr of selectedTargetYears) {
+      yearPatterns.set(yr, JSON.parse(JSON.stringify(matrix)));
+    }
+  } else {
+    yearPatterns.set(activePreviewYear, JSON.parse(JSON.stringify(matrix)));
+  }
   renderCurrentView(matrix);
 });
 
@@ -490,7 +610,7 @@ function updateTargetRepoLink() {
 }
 repoNameInput.addEventListener('input', updateTargetRepoLink);
 
-async function loadUserContributions() {
+async function loadUserContributions(year: number = activePreviewYear) {
   const token = getStoredToken();
   if (!token) {
     userProfileCalendar = null;
@@ -498,12 +618,26 @@ async function loadUserContributions() {
     renderCurrentView(matrixStore.getMatrix());
     return;
   }
-  try {
-    const data = await fetchUserContributions(token);
-    if (data) {
-      userProfileCalendar = data.matrix;
-      userTotalContributions = data.totalContributions;
+
+  if (yearContributionsCache.has(year)) {
+    const cached = yearContributionsCache.get(year)!;
+    if (activePreviewYear === year) {
+      userProfileCalendar = cached.matrix;
+      userTotalContributions = cached.totalContributions;
       renderCurrentView(matrixStore.getMatrix());
+    }
+    return;
+  }
+
+  try {
+    const data = await fetchUserContributions(token, year === currentYear ? undefined : year);
+    if (data) {
+      yearContributionsCache.set(year, data);
+      if (activePreviewYear === year) {
+        userProfileCalendar = data.matrix;
+        userTotalContributions = data.totalContributions;
+        renderCurrentView(matrixStore.getMatrix());
+      }
     }
   } catch {}
 }
@@ -524,6 +658,7 @@ function updateAuthDisplay() {
       currentUser = null;
       userProfileCalendar = null;
       userTotalContributions = null;
+      yearContributionsCache.clear();
       updateAuthDisplay();
       checkExistingUserRepo();
       updateTargetRepoLink();
@@ -538,6 +673,7 @@ function updateAuthDisplay() {
     repoStatusBadge.textContent = 'Public Repo';
     userProfileCalendar = null;
     userTotalContributions = null;
+    yearContributionsCache.clear();
     updateTargetRepoLink();
     renderCurrentView(matrixStore.getMatrix());
   }
@@ -571,10 +707,23 @@ async function checkExistingUserRepo() {
       const promptLoad = confirm(
         `Found existing GitStamp art in @${currentUser.login}/${repoName}. Would you like to load it into the editor?`
       );
-      if (promptLoad && existing.config.matrix) {
-        matrixStore.setMatrix(existing.config.matrix);
-        widthSlider.setValue(existing.config.matrix[0].length);
-        invertToggle.setChecked(existing.config.mode === 'bicolor');
+      if (promptLoad) {
+        if (Array.isArray(existing.config.years) && existing.config.years.length > 0) {
+          selectedTargetYears = new Set(existing.config.years);
+          renderTargetYearsPills();
+        }
+        if (existing.config.patterns) {
+          for (const [yStr, cfg] of Object.entries(existing.config.patterns)) {
+            if (Array.isArray(cfg.matrix)) {
+              yearPatterns.set(Number(yStr), cfg.matrix);
+            }
+          }
+        }
+        if (existing.config.matrix) {
+          matrixStore.setMatrix(existing.config.matrix);
+          widthSlider.setValue(existing.config.matrix[0].length);
+          invertToggle.setChecked(existing.config.mode === 'bicolor');
+        }
       }
     } else {
       repoStatusBadge.textContent = 'New Repo';
@@ -633,18 +782,33 @@ btnDeploy.addEventListener('click', async () => {
 
     setStepStatus(stepFiles, 'running', '2. Committing engine files (art.json, render.mjs, workflow, README)...');
 
+    const sortedYears = Array.from(selectedTargetYears).sort((a, b) => b - a);
+    const currentCanvasMatrix = matrixStore.getMatrix();
+    const patterns: Record<string, { type: 'rolling' | 'calendar'; matrix: ContributionLevel[][] }> = {};
+
+    for (const yr of sortedYears) {
+      const yrMatrix = (!syncAllYears && yearPatterns.has(yr)) ? yearPatterns.get(yr)! : currentCanvasMatrix;
+      patterns[String(yr)] = {
+        type: yr === currentYear ? 'rolling' : 'calendar',
+        matrix: yrMatrix
+      };
+    }
+
     const artData = {
       authorName: currentUser.login,
       authorEmail: currentUser.noreply_email,
       mode: currentMode === 'grayscale' ? 'grayscale' : 'bicolor',
-      matrix: matrixStore.getMatrix(),
+      matrix: currentCanvasMatrix,
+      years: sortedYears,
+      patterns,
       updatedAt: new Date().toISOString()
     };
 
     const readmeContent = generateReadme(
-      matrixStore.getMatrix(),
+      currentCanvasMatrix,
       currentUser.login,
-      window.location.href
+      window.location.href,
+      sortedYears
     );
 
     const artSha = (await getFile(token, owner, repoName, 'art.json'))?.sha;

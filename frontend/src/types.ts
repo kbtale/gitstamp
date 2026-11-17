@@ -4,11 +4,18 @@ export type ProcessingMode = 'auto' | 'bicolor' | 'grayscale';
 
 export type AppTheme = 'light' | 'dark';
 
+export interface YearPatternConfig {
+  matrix: ContributionLevel[][];
+  type: 'rolling' | 'calendar';
+}
+
 export interface ArtConfig {
   authorName: string;
   authorEmail: string;
   mode: 'bicolor' | 'grayscale';
   matrix: ContributionLevel[][];
+  years?: number[];
+  patterns?: Record<string, YearPatternConfig>;
   updatedAt: string;
 }
 

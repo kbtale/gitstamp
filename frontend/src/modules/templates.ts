@@ -48,24 +48,47 @@ function formatDate(date) {
   return \`\${y}-\${m}-\${d}\`;
 }
 
-async function fetchContributionCalendar(token) {
-  const query = \`
-    query {
-      viewer {
-        contributionsCollection {
-          contributionCalendar {
-            weeks {
-              contributionDays {
-                date
-                contributionCount
-                contributionLevel
+async function fetchContributionCalendar(token, from, to) {
+  let query;
+  let variables = {};
+  if (from && to) {
+    query = \`
+      query($from: DateTime!, $to: DateTime!) {
+        viewer {
+          contributionsCollection(from: $from, to: $to) {
+            contributionCalendar {
+              weeks {
+                contributionDays {
+                  date
+                  contributionCount
+                  contributionLevel
+                }
               }
             }
           }
         }
       }
-    }
-  \`;
+    \`;
+    variables = { from, to };
+  } else {
+    query = \`
+      query {
+        viewer {
+          contributionsCollection {
+            contributionCalendar {
+              weeks {
+                contributionDays {
+                  date
+                  contributionCount
+                  contributionLevel
+                }
+              }
+            }
+          }
+        }
+      }
+    \`;
+  }
 
   const res = await fetch('https://api.github.com/graphql', {
     method: 'POST',
@@ -74,7 +97,7 @@ async function fetchContributionCalendar(token) {
       'Content-Type': 'application/json',
       'User-Agent': 'GitStamp-Renderer'
     },
-    body: JSON.stringify({ query })
+    body: JSON.stringify({ query, variables })
   });
 
   if (!res.ok) {
@@ -163,56 +186,96 @@ async function main() {
     throw new Error('GITHUB_TOKEN environment variable is required');
   }
 
-  const calendar = await fetchContributionCalendar(token);
-  const { existingMap, thresholds } = determineQuartileThresholds(calendar);
-
   const now = new Date();
+  const currentYear = now.getUTCFullYear();
   const currentDayOfWeek = now.getUTCDay();
   const currentSunday = new Date(Date.UTC(
-    now.getUTCFullYear(),
+    currentYear,
     now.getUTCMonth(),
     now.getUTCDate() - currentDayOfWeek
   ));
 
-  const col0Sunday = new Date(currentSunday.getTime() - 52 * 7 * 86400000);
-
-  const matrixWidth = matrix[0]?.length || 0;
-  if (matrixWidth === 0 || matrixWidth > 53) {
-    throw new Error(\`Invalid matrix width: \${matrixWidth}\`);
-  }
-
-  const startCol = Math.floor((53 - matrixWidth) / 2);
-
+  const yearsToProcess = Array.isArray(art.years) && art.years.length > 0 ? art.years : [currentYear];
   const commitsByDate = [];
+  const processedDates = new Set();
 
-  for (let c = 0; c < matrixWidth; c++) {
-    const graphCol = startCol + c;
-    if (graphCol < 0 || graphCol > 52) {
+  for (const yearNum of yearsToProcess) {
+    const yr = Number(yearNum);
+    if (!Number.isFinite(yr)) {
       continue;
     }
 
-    for (let r = 0; r < 7; r++) {
-      const level = matrix[r][c] || 0;
-      if (level === 0) {
+    const yearPattern = art.patterns && art.patterns[String(yr)];
+    const yearMatrix = (yearPattern && Array.isArray(yearPattern.matrix)) ? yearPattern.matrix : matrix;
+    const isRolling = (yearPattern && yearPattern.type === 'rolling') || (yr === currentYear && (!yearPattern || yearPattern.type === 'rolling'));
+
+    let calendar;
+    let col0Sunday;
+    let totalCols;
+
+    if (isRolling) {
+      calendar = await fetchContributionCalendar(token);
+      col0Sunday = new Date(currentSunday.getTime() - 52 * 7 * 86400000);
+      totalCols = 53;
+    } else {
+      const from = \`\${yr}-01-01T00:00:00Z\`;
+      const to = \`\${yr}-12-31T23:59:59Z\`;
+      calendar = await fetchContributionCalendar(token, from, to);
+      const jan1 = new Date(Date.UTC(yr, 0, 1));
+      const jan1Day = jan1.getUTCDay();
+      col0Sunday = new Date(Date.UTC(yr, 0, 1 - jan1Day));
+      const dec31 = new Date(Date.UTC(yr, 11, 31));
+      const totalDays = Math.floor((dec31.getTime() - col0Sunday.getTime()) / 86400000) + 1;
+      totalCols = Math.ceil(totalDays / 7);
+    }
+
+    const { existingMap, thresholds } = determineQuartileThresholds(calendar);
+    const matrixWidth = yearMatrix[0]?.length || 0;
+    if (matrixWidth === 0 || matrixWidth > totalCols) {
+      continue;
+    }
+
+    const startCol = Math.floor((totalCols - matrixWidth) / 2);
+
+    for (let c = 0; c < matrixWidth; c++) {
+      const graphCol = startCol + c;
+      if (graphCol < 0 || graphCol >= totalCols) {
         continue;
       }
 
-      const dayOffset = graphCol * 7 + r;
-      const cellDate = new Date(col0Sunday.getTime() + dayOffset * 86400000);
-      const dateStr = formatDate(cellDate);
+      for (let r = 0; r < 7; r++) {
+        const level = yearMatrix[r][c] || 0;
+        if (level === 0) {
+          continue;
+        }
 
-      const desiredCommits = thresholds[level] || level;
-      const existingCommits = existingMap.get(dateStr) || 0;
-      const commitsToInject = Math.max(0, desiredCommits - existingCommits);
+        const dayOffset = graphCol * 7 + r;
+        const cellDate = new Date(col0Sunday.getTime() + dayOffset * 86400000);
+        if (!isRolling && cellDate.getUTCFullYear() !== yr) {
+          continue;
+        }
 
-      if (commitsToInject > 0) {
-        commitsByDate.push({
-          dateStr,
-          count: commitsToInject
-        });
+        const dateStr = formatDate(cellDate);
+        if (processedDates.has(dateStr)) {
+          continue;
+        }
+        processedDates.add(dateStr);
+
+        const desiredCommits = thresholds[level] || level;
+        const existingCommits = existingMap.get(dateStr) || 0;
+        const commitsToInject = Math.max(0, desiredCommits - existingCommits);
+
+        if (commitsToInject > 0) {
+          commitsByDate.push({
+            dateStr,
+            count: commitsToInject
+          });
+        }
       }
     }
   }
+
+  commitsByDate.sort((a, b) => a.dateStr.localeCompare(b.dateStr));
 
   run(\`git config user.name "\${authorName}"\`);
   run(\`git config user.email "\${authorEmail}"\`);
@@ -251,7 +314,8 @@ main().catch((err) => {
 export function generateReadme(
   matrix: ContributionLevel[][],
   authorName: string,
-  webAppUrl: string = 'https://kbtale.github.io/gitstamp/'
+  webAppUrl: string = 'https://gitstamp.vercel.app',
+  years?: number[]
 ): string {
   const emojiMap: Record<ContributionLevel, string> = {
     0: '⬜',
@@ -281,9 +345,11 @@ export function generateReadme(
     asciiLines.push(`${days[r]} ${asciiRow}`);
   }
 
+  const yearsText = Array.isArray(years) && years.length > 0 ? ` [${years.join(', ')}]` : '';
+
   return `# gitstamp-art (GitHub Contribution Graph)
 
-Dynamic GitHub contribution graph artwork generated by [GitStamp](${webAppUrl}) for **@${authorName}**.
+Dynamic GitHub contribution graph artwork generated by [GitStamp](${webAppUrl}) for **@${authorName}**${yearsText}.
 
 ## Artwork Preview
 
@@ -297,7 +363,7 @@ ${emojiLines.join('\n\n')}
 
 ## How It Works
 
-1. **Self-Centering**: GitHub's contribution graph shows a rolling 53-week window. Every Sunday at 01:00 UTC, a GitHub Action recalculates commit dates so this artwork remains permanently centered.
+1. **Multi-Year & Self-Centering**: GitHub's contribution graph displays both rolling annual activity and past calendar years. GitStamp stamps your chosen artwork across selected profile years${yearsText}. The rolling year is automatically recentered every Sunday at 01:00 UTC.
 2. **Quartile Precision**: The workflow queries GitHub's GraphQL API to detect your exact contribution quartile thresholds. This guarantees consistent shades without over-inflating commit counts.
 3. **Clean History**: Uses an orphan branch to wipe prior render commits before regenerating, keeping repository size minimal and fast to clone.
 
