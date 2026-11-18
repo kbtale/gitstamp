@@ -814,14 +814,14 @@ input:checked + .slider-knob:before {
 .artwork-items-list {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.625rem;
 }
 
 .artwork-item-card {
   display: flex;
-  align-items: center;
-  gap: 0.625rem;
-  padding: 0.5rem 0.625rem;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.625rem;
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
   background-color: var(--color-bg-base);
@@ -835,21 +835,46 @@ input:checked + .slider-knob:before {
 
 .artwork-item-card.active {
   border-color: #1f6feb;
-  background-color: rgba(31, 111, 235, 0.12);
+  background-color: rgba(31, 111, 235, 0.08);
   box-shadow: 0 0 0 1px rgba(31, 111, 235, 0.35);
 }
 
+.artwork-item-card.dragover {
+  border-style: dashed;
+  border-color: #3fb950;
+  background-color: rgba(63, 185, 80, 0.1);
+}
+
+.artwork-card-top {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
 .artwork-item-thumb {
-  width: 34px;
-  height: 34px;
+  width: 40px;
+  height: 40px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
   background-color: var(--color-bg-surface);
+  color: var(--color-text-muted);
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
   flex-shrink: 0;
+  padding: 0;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.artwork-item-thumb.empty {
+  border-style: dashed;
+}
+
+.artwork-item-thumb:hover {
+  border-color: #58a6ff;
+  color: #58a6ff;
 }
 
 .artwork-item-thumb img {
@@ -858,25 +883,12 @@ input:checked + .slider-knob:before {
   object-fit: contain;
 }
 
-.artwork-item-thumb-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 5px);
-  gap: 2px;
-}
-
-.artwork-item-thumb-grid span {
-  width: 5px;
-  height: 5px;
-  border-radius: 1px;
-  background-color: var(--gh-level-3);
-}
-
 .artwork-item-info {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.125rem;
 }
 
 .artwork-item-name {
@@ -888,47 +900,93 @@ input:checked + .slider-knob:before {
   text-overflow: ellipsis;
 }
 
-.artwork-item-years {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-}
-
-.artwork-year-badge {
-  font-size: 0.6875rem;
+.artwork-item-name.is-prompt {
+  color: #58a6ff;
   font-weight: 500;
-  padding: 0.0625rem 0.375rem;
-  border-radius: var(--radius-sm);
-  background-color: rgba(63, 185, 80, 0.15);
-  color: #3fb950;
-  border: 1px solid rgba(63, 185, 80, 0.35);
 }
 
-.artwork-year-badge.unassigned {
-  background-color: transparent;
+.artwork-item-sub {
+  font-size: 0.7rem;
   color: var(--color-text-muted);
-  border: 1px dashed var(--color-border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.btn-delete-artwork {
+.artwork-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.btn-artwork-action {
   background: none;
-  border: none;
+  border: 1px solid transparent;
   color: var(--color-text-muted);
   font-size: 0.75rem;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border-radius: var(--radius-sm);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  transition: background-color var(--transition-fast), color var(--transition-fast);
+  transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
 }
 
-.btn-delete-artwork:hover {
+.btn-artwork-action:hover {
+  background-color: var(--color-bg-elevated);
+  border-color: var(--color-border);
+  color: var(--color-text-main);
+}
+
+.btn-artwork-action.danger:hover {
   background-color: rgba(248, 81, 73, 0.15);
+  border-color: rgba(248, 81, 73, 0.35);
   color: #f85149;
+}
+
+.artwork-card-years {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.artwork-year-pill {
+  flex: 1;
+  text-align: center;
+  padding: 0.2rem 0.25rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background-color: var(--color-bg-surface);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.artwork-year-pill:hover {
+  border-color: #58a6ff;
+  color: var(--color-text-main);
+}
+
+.artwork-year-pill.selected {
+  background-color: #1f6feb;
+  border-color: #1f6feb;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.artwork-year-pill.assigned-elsewhere {
+  border-style: dashed;
+  opacity: 0.5;
+}
+
+.artwork-year-pill.assigned-elsewhere:hover {
+  opacity: 1;
 }
 
 .deploy-plan-list {
