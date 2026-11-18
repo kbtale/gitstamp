@@ -723,6 +723,9 @@ input:checked + .slider-knob:before {
 }
 
 .year-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
   background: none;
   border: none;
   color: var(--gh-preview-text);
@@ -733,6 +736,19 @@ input:checked + .slider-knob:before {
   cursor: pointer;
   transition: all var(--transition-fast);
   line-height: 1.4;
+}
+
+.year-pill.target-enabled::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #3fb950;
+  flex-shrink: 0;
+}
+
+.year-pill.active.target-enabled::before {
+  background-color: #ffffff;
 }
 
 .year-pill:hover {
