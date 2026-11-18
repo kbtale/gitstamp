@@ -54,17 +54,8 @@ const btnOpenAuth = document.getElementById('btn-open-auth') as HTMLButtonElemen
 
 const btnAddArtwork = document.getElementById('btn-add-artwork') as HTMLButtonElement;
 const artworkItemsList = document.getElementById('artwork-items-list') as HTMLElement;
-const activeArtworkEditorTitle = document.getElementById('active-artwork-editor-title') as HTMLElement;
-const itemYearsContainer = document.getElementById('item-years-container') as HTMLElement;
-
-const uploadDropzone = document.getElementById('upload-dropzone') as HTMLElement;
-const dropzoneEmpty = document.getElementById('dropzone-empty') as HTMLElement;
-const dropzoneActive = document.getElementById('dropzone-active') as HTMLElement;
-const dropzoneThumb = document.getElementById('dropzone-thumb') as HTMLImageElement;
-const dropzoneFilename = document.getElementById('dropzone-filename') as HTMLElement;
-const dropzoneDims = document.getElementById('dropzone-dims') as HTMLElement;
-const btnClearImage = document.getElementById('btn-clear-image') as HTMLButtonElement;
 const fileInput = document.getElementById('file-input') as HTMLInputElement;
+let pendingUploadArtworkId: string | null = null;
 
 const modeContainer = document.getElementById('mode-control-container') as HTMLElement;
 const thresholdContainer = document.getElementById('threshold-control-container') as HTMLElement;
@@ -231,28 +222,47 @@ const widthSlider = createSlider({
   }
 });
 
+const UPLOAD_ICON_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>';
+
+function triggerUploadForArtwork(id: string) {
+  pendingUploadArtworkId = id;
+  fileInput.value = '';
+  fileInput.click();
+}
+
+function clearArtworkImage(id: string) {
+  const item = artworkItems.find((a) => a.id === id);
+  if (!item) {
+    return;
+  }
+  if (item.imageThumbUrl) {
+    URL.revokeObjectURL(item.imageThumbUrl);
+  }
+  item.image = null;
+  item.imageThumbUrl = null;
+  item.imageFilename = null;
+  item.imageDims = null;
+  const idx = artworkItems.indexOf(item) + 1;
+  item.name = `Artwork ${idx}`;
+  item.matrix = createEmptyMatrix(item.width);
+  if (item.id === activeArtworkId) {
+    isSyncingMatrix = true;
+    matrixStore.setMatrix(item.matrix);
+    isSyncingMatrix = false;
+  }
+  syncSidebarToActiveArtwork();
+  renderArtworkItemsList();
+  renderYearSelector();
+  renderDeployPlan();
+  renderCurrentView(matrixStore.getMatrix());
+}
+
 function syncSidebarToActiveArtwork() {
   const item = getActiveArtwork();
-  if (activeArtworkEditorTitle) {
-    activeArtworkEditorTitle.textContent = item.name;
-  }
-  fileInput.value = '';
-  if (item.image && item.imageThumbUrl) {
-    dropzoneThumb.src = item.imageThumbUrl;
-    dropzoneFilename.textContent = item.imageFilename || item.name;
-    dropzoneDims.textContent = item.imageDims || '';
-    dropzoneEmpty.style.display = 'none';
-    dropzoneActive.style.display = 'flex';
-  } else {
-    dropzoneThumb.removeAttribute('src');
-    dropzoneEmpty.style.display = 'block';
-    dropzoneActive.style.display = 'none';
-  }
   modeControl.setValue(item.mode);
   thresholdSlider.setValue(item.threshold);
   invertToggle.setChecked(item.invert);
   widthSlider.setValue(item.width);
-  renderItemYearsPills();
 }
 
 function renderArtworkItemsList() {
@@ -264,135 +274,169 @@ function renderArtworkItemsList() {
   for (const item of artworkItems) {
     const card = document.createElement('div');
     card.className = `artwork-item-card ${item.id === activeArtworkId ? 'active' : ''}`.trim();
-    card.setAttribute('role', 'button');
-    card.tabIndex = 0;
 
-    const thumb = document.createElement('div');
-    thumb.className = 'artwork-item-thumb';
+    card.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      card.classList.add('dragover');
+    });
+
+    card.addEventListener('dragleave', () => {
+      card.classList.remove('dragover');
+    });
+
+    card.addEventListener('drop', (e) => {
+      e.preventDefault();
+      card.classList.remove('dragover');
+      const file = e.dataTransfer?.files[0];
+      if (file) {
+        handleFileUpload(file, item.id);
+      }
+    });
+
+    const topRow = document.createElement('div');
+    topRow.className = 'artwork-card-top';
+
+    const thumbBtn = document.createElement('button');
+    thumbBtn.type = 'button';
+    thumbBtn.className = `artwork-item-thumb ${item.imageThumbUrl ? '' : 'empty'}`.trim();
+    thumbBtn.title = item.image ? `Replace image for ${item.name}` : `Upload image for ${item.name}`;
     if (item.imageThumbUrl) {
       const img = document.createElement('img');
       img.src = item.imageThumbUrl;
       img.alt = item.name;
-      thumb.appendChild(img);
+      thumbBtn.appendChild(img);
     } else {
-      const gridIcon = document.createElement('div');
-      gridIcon.className = 'artwork-item-thumb-grid';
-      for (let i = 0; i < 9; i++) {
-        gridIcon.appendChild(document.createElement('span'));
-      }
-      thumb.appendChild(gridIcon);
+      thumbBtn.innerHTML = UPLOAD_ICON_SVG;
     }
+    thumbBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      triggerUploadForArtwork(item.id);
+    });
 
     const info = document.createElement('div');
     info.className = 'artwork-item-info';
 
     const nameEl = document.createElement('div');
-    nameEl.className = 'artwork-item-name';
-    nameEl.textContent = item.name;
+    nameEl.className = `artwork-item-name ${item.image ? '' : 'is-prompt'}`.trim();
+    nameEl.textContent = item.image ? item.name : 'Click or drop image';
 
-    const yearsRow = document.createElement('div');
-    yearsRow.className = 'artwork-item-years';
-    const sortedYears = Array.from(item.years).sort((a, b) => b - a);
-    if (sortedYears.length === 0) {
-      const badge = document.createElement('span');
-      badge.className = 'artwork-year-badge unassigned';
-      badge.textContent = 'Unassigned';
-      yearsRow.appendChild(badge);
-    } else {
-      for (const yr of sortedYears) {
-        const badge = document.createElement('span');
-        badge.className = 'artwork-year-badge';
-        badge.textContent = String(yr);
-        yearsRow.appendChild(badge);
-      }
+    const subEl = document.createElement('div');
+    subEl.className = 'artwork-item-sub';
+    subEl.textContent = item.image ? (item.imageDims || `${item.width} cols`) : 'PNG, JPG, SVG, WEBP';
+
+    if (!item.image) {
+      info.addEventListener('click', (e) => {
+        e.stopPropagation();
+        triggerUploadForArtwork(item.id);
+      });
     }
 
     info.appendChild(nameEl);
-    info.appendChild(yearsRow);
-    card.appendChild(thumb);
-    card.appendChild(info);
+    info.appendChild(subEl);
+
+    const actions = document.createElement('div');
+    actions.className = 'artwork-card-actions';
+
+    if (item.image) {
+      const uploadBtn = document.createElement('button');
+      uploadBtn.type = 'button';
+      uploadBtn.className = 'btn-artwork-action';
+      uploadBtn.title = `Replace image`;
+      uploadBtn.innerHTML = UPLOAD_ICON_SVG;
+      uploadBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        triggerUploadForArtwork(item.id);
+      });
+      actions.appendChild(uploadBtn);
+    }
 
     if (artworkItems.length > 1) {
       const deleteBtn = document.createElement('button');
       deleteBtn.type = 'button';
-      deleteBtn.className = 'btn-delete-artwork';
+      deleteBtn.className = 'btn-artwork-action danger';
       deleteBtn.title = `Remove ${item.name}`;
       deleteBtn.textContent = '✕';
       deleteBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         deleteArtworkItem(item.id);
       });
-      card.appendChild(deleteBtn);
+      actions.appendChild(deleteBtn);
+    } else if (item.image) {
+      const clearBtn = document.createElement('button');
+      clearBtn.type = 'button';
+      clearBtn.className = 'btn-artwork-action danger';
+      clearBtn.title = 'Remove image';
+      clearBtn.textContent = '✕';
+      clearBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        clearArtworkImage(item.id);
+      });
+      actions.appendChild(clearBtn);
     }
 
-    card.addEventListener('click', () => {
-      selectArtworkItem(item.id, true);
-    });
+    topRow.appendChild(thumbBtn);
+    topRow.appendChild(info);
+    topRow.appendChild(actions);
 
-    card.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
+    const yearsRow = document.createElement('div');
+    yearsRow.className = 'artwork-card-years';
+
+    for (const yr of availableYears) {
+      const owner = getArtworkForYear(yr);
+      const isOwnedByThis = item.years.has(yr);
+      const isOwnedElsewhere = Boolean(owner && owner.id !== item.id);
+
+      const pill = document.createElement('button');
+      pill.type = 'button';
+      pill.className = `artwork-year-pill ${isOwnedByThis ? 'selected' : ''} ${isOwnedElsewhere ? 'assigned-elsewhere' : ''}`.trim();
+      pill.textContent = String(yr);
+      if (isOwnedElsewhere && owner) {
+        pill.title = `Assigned to ${owner.name} — click to move ${yr} here`;
+      } else {
+        pill.title = yr === currentYear ? `${yr} (Rolling year)` : `${yr} calendar year`;
+      }
+
+      pill.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (isOwnedByThis) {
+          item.years.delete(yr);
+          renderArtworkItemsList();
+          renderYearSelector();
+          renderDeployPlan();
+          renderCurrentView(matrixStore.getMatrix());
+        } else {
+          for (const other of artworkItems) {
+            if (other.id !== item.id) {
+              other.years.delete(yr);
+            }
+          }
+          item.years.add(yr);
+          activePreviewYear = yr;
+          if (item.id !== activeArtworkId) {
+            await selectArtworkItem(item.id, false);
+          } else {
+            renderArtworkItemsList();
+            renderYearSelector();
+            renderDeployPlan();
+            await loadUserContributions(activePreviewYear);
+            renderCurrentView(matrixStore.getMatrix());
+          }
+        }
+      });
+
+      yearsRow.appendChild(pill);
+    }
+
+    card.appendChild(topRow);
+    card.appendChild(yearsRow);
+
+    card.addEventListener('click', () => {
+      if (item.id !== activeArtworkId) {
         selectArtworkItem(item.id, true);
       }
     });
 
     artworkItemsList.appendChild(card);
-  }
-}
-
-function renderItemYearsPills() {
-  if (!itemYearsContainer) {
-    return;
-  }
-  itemYearsContainer.innerHTML = '';
-  const activeItem = getActiveArtwork();
-
-  for (const yr of availableYears) {
-    const owner = getArtworkForYear(yr);
-    const isOwnedByActive = owner?.id === activeItem.id;
-    const isOwnedElsewhere = Boolean(owner && owner.id !== activeItem.id);
-
-    const chip = document.createElement('label');
-    chip.className = `target-year-chip ${isOwnedByActive ? 'selected' : ''} ${isOwnedElsewhere ? 'assigned-elsewhere' : ''}`.trim();
-    if (isOwnedElsewhere && owner) {
-      chip.title = `Currently assigned to ${owner.name} — click to assign to ${activeItem.name}`;
-    }
-
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.checked = isOwnedByActive;
-
-    checkbox.addEventListener('change', async () => {
-      if (checkbox.checked) {
-        for (const item of artworkItems) {
-          if (item.id !== activeItem.id) {
-            item.years.delete(yr);
-          }
-        }
-        activeItem.years.add(yr);
-        activePreviewYear = yr;
-        renderArtworkItemsList();
-        renderItemYearsPills();
-        renderYearSelector();
-        renderDeployPlan();
-        await loadUserContributions(activePreviewYear);
-        renderCurrentView(matrixStore.getMatrix());
-      } else {
-        activeItem.years.delete(yr);
-        renderArtworkItemsList();
-        renderItemYearsPills();
-        renderYearSelector();
-        renderDeployPlan();
-        renderCurrentView(matrixStore.getMatrix());
-      }
-    });
-
-    const labelSpan = document.createElement('span');
-    labelSpan.textContent = yr === currentYear ? `${yr} (Rolling)` : String(yr);
-
-    chip.appendChild(checkbox);
-    chip.appendChild(labelSpan);
-    itemYearsContainer.appendChild(chip);
   }
 }
 
@@ -526,7 +570,6 @@ async function deleteArtworkItem(id: string) {
     await selectArtworkItem(fallback.id, true);
   } else {
     renderArtworkItemsList();
-    renderItemYearsPills();
     renderYearSelector();
     renderDeployPlan();
     renderCurrentView(matrixStore.getMatrix());
@@ -795,66 +838,59 @@ btnInvertGrid.addEventListener('click', () => matrixStore.invert());
 btnUndoGrid.addEventListener('click', () => matrixStore.undo());
 btnRedoGrid.addEventListener('click', () => matrixStore.redo());
 
-uploadDropzone.addEventListener('click', () => fileInput.click());
-
-uploadDropzone.addEventListener('dragover', (e) => {
-  e.preventDefault();
-  uploadDropzone.classList.add('dragover');
-});
-
-uploadDropzone.addEventListener('dragleave', () => {
-  uploadDropzone.classList.remove('dragover');
-});
-
-uploadDropzone.addEventListener('drop', async (e) => {
-  e.preventDefault();
-  uploadDropzone.classList.remove('dragover');
-  const file = e.dataTransfer?.files[0];
-  if (file) {
-    handleFileUpload(file);
-  }
-});
-
 fileInput.addEventListener('change', () => {
   const file = fileInput.files?.[0];
+  const targetId = pendingUploadArtworkId || activeArtworkId;
+  pendingUploadArtworkId = null;
   if (file) {
-    handleFileUpload(file);
+    handleFileUpload(file, targetId);
   }
 });
 
-async function handleFileUpload(file: File) {
+async function handleFileUpload(file: File, targetId: string = activeArtworkId) {
   try {
     const img = await loadImageFromFile(file);
-    const item = getActiveArtwork();
+    const targetItem = artworkItems.find((a) => a.id === targetId) || getActiveArtwork();
 
-    if (item.imageThumbUrl) {
-      URL.revokeObjectURL(item.imageThumbUrl);
+    if (targetItem.id !== activeArtworkId) {
+      const prev = getActiveArtwork();
+      prev.matrix = matrixStore.getMatrix();
+      prev.width = prev.matrix[0]?.length || prev.width;
+      activeArtworkId = targetItem.id;
+      if (targetItem.years.size > 0 && !targetItem.years.has(activePreviewYear)) {
+        const sorted = Array.from(targetItem.years).sort((a, b) => b - a);
+        activePreviewYear = sorted[0];
+      }
     }
 
-    item.image = img;
-    item.imageThumbUrl = URL.createObjectURL(file);
-    item.imageFilename = file.name;
-    item.imageDims = `${img.naturalWidth} × ${img.naturalHeight} px (${Math.round(file.size / 1024)} KB)`;
-    item.name = file.name;
+    if (targetItem.imageThumbUrl) {
+      URL.revokeObjectURL(targetItem.imageThumbUrl);
+    }
+
+    targetItem.image = img;
+    targetItem.imageThumbUrl = URL.createObjectURL(file);
+    targetItem.imageFilename = file.name;
+    targetItem.imageDims = `${img.naturalWidth} × ${img.naturalHeight} px · ${Math.round(file.size / 1024)} KB`;
+    targetItem.name = file.name;
 
     const ratio = img.naturalWidth / Math.max(1, img.naturalHeight);
     let targetWidth = Math.round(7 * ratio);
     targetWidth = Math.max(1, Math.min(44, targetWidth));
-    item.width = targetWidth;
+    targetItem.width = targetWidth;
 
     const result = processImageToMatrix(img, {
-      mode: item.mode,
-      threshold: item.threshold,
-      invert: item.invert,
+      mode: targetItem.mode,
+      threshold: targetItem.threshold,
+      invert: targetItem.invert,
       customWidth: targetWidth
     });
 
-    item.isUserManualThreshold = false;
-    item.threshold = result.calculatedThreshold;
-    if (item.mode === 'auto') {
-      item.mode = result.detectedMode;
+    targetItem.isUserManualThreshold = false;
+    targetItem.threshold = result.calculatedThreshold;
+    if (targetItem.mode === 'auto') {
+      targetItem.mode = result.detectedMode;
     }
-    item.matrix = cloneMatrix(result.matrix);
+    targetItem.matrix = cloneMatrix(result.matrix);
 
     isSyncingMatrix = true;
     matrixStore.setMatrix(result.matrix);
@@ -864,31 +900,12 @@ async function handleFileUpload(file: File) {
     renderArtworkItemsList();
     renderYearSelector();
     renderDeployPlan();
+    await loadUserContributions(activePreviewYear);
     renderCurrentView(matrixStore.getMatrix());
   } catch (err: any) {
     alert(`Error loading image: ${err.message || err}`);
   }
 }
-
-btnClearImage.addEventListener('click', (e) => {
-  e.stopPropagation();
-  const item = getActiveArtwork();
-  if (item.imageThumbUrl) {
-    URL.revokeObjectURL(item.imageThumbUrl);
-  }
-  item.image = null;
-  item.imageThumbUrl = null;
-  item.imageFilename = null;
-  item.imageDims = null;
-  const idx = artworkItems.indexOf(item) + 1;
-  item.name = `Artwork ${idx}`;
-  fileInput.value = '';
-  matrixStore.clear();
-  syncSidebarToActiveArtwork();
-  renderArtworkItemsList();
-  renderYearSelector();
-  renderDeployPlan();
-});
 
 btnContributionSettings.addEventListener('click', (e) => {
   e.stopPropagation();

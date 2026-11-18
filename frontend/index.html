@@ -54,35 +54,9 @@
         </div>
 
         <div class="artwork-items-list" id="artwork-items-list"></div>
+        <input type="file" id="file-input" class="file-input-hidden" accept="image/png,image/jpeg,image/svg+xml,image/webp" />
 
         <div class="sidebar-divider"></div>
-
-        <div class="panel-title">
-          <span id="active-artwork-editor-title">Artwork 1</span>
-        </div>
-
-        <div class="control-group">
-          <label class="control-label">Assigned Years</label>
-          <div class="target-years-pills" id="item-years-container"></div>
-          <div class="form-hint">Pick which profile year(s) this artwork will be stamped onto.</div>
-        </div>
-
-        <div class="upload-dropzone" id="upload-dropzone">
-          <div class="dropzone-empty" id="dropzone-empty">
-            <div class="upload-icon">📁</div>
-            <div class="upload-prompt">Click or drag image here</div>
-            <div class="upload-hint">PNG, JPG, SVG, WEBP (transparent logos recommended)</div>
-          </div>
-          <div class="dropzone-active" id="dropzone-active" style="display: none;">
-            <img id="dropzone-thumb" class="dropzone-thumb" alt="Uploaded preview" />
-            <div class="dropzone-meta">
-              <span class="dropzone-filename" id="dropzone-filename">image.png</span>
-              <span class="dropzone-dims" id="dropzone-dims">256 × 256 px</span>
-              <button type="button" class="btn-dropzone-remove" id="btn-clear-image" title="Remove image">✕ Remove</button>
-            </div>
-          </div>
-          <input type="file" id="file-input" class="file-input-hidden" accept="image/png,image/jpeg,image/svg+xml,image/webp" />
-        </div>
 
         <div class="control-group">
           <label class="control-label">Conversion Mode</label>
