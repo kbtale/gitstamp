@@ -127,7 +127,7 @@ function createArtworkItem(
     imageThumbUrl: null,
     imageFilename: null,
     imageDims: null,
-    mode: 'auto',
+    mode: 'bicolor',
     threshold: 128,
     isUserManualThreshold: false,
     invert: false,
@@ -139,6 +139,21 @@ function createArtworkItem(
 
 let artworkItems: ArtworkItem[] = [createArtworkItem([currentYear])];
 let activeArtworkId: string = artworkItems[0].id;
+
+function hasArtworkContent(item: ArtworkItem): boolean {
+  if (item.image) {
+    return true;
+  }
+  return item.matrix.some((row) => row.some((lvl) => lvl > 0));
+}
+
+function updateAddArtworkButtonVisibility() {
+  if (!btnAddArtwork) {
+    return;
+  }
+  const shouldShow = artworkItems.length > 1 || (artworkItems.length === 1 && hasArtworkContent(artworkItems[0]));
+  btnAddArtwork.style.display = shouldShow ? 'flex' : 'none';
+}
 
 function getActiveArtwork(): ArtworkItem {
   return artworkItems.find((item) => item.id === activeArtworkId) || artworkItems[0];
@@ -161,11 +176,11 @@ function getAllAssignedYears(): number[] {
 const modeControl = createSegmentedControl<ProcessingMode>({
   container: modeContainer,
   options: [
-    { label: 'Auto', value: 'auto' },
     { label: 'Bicolor', value: 'bicolor' },
-    { label: '5-Level', value: 'grayscale' }
+    { label: '5-Level', value: 'grayscale' },
+    { label: 'Auto', value: 'auto' }
   ],
-  initialValue: 'auto',
+  initialValue: 'bicolor',
   onChange: (mode) => {
     const item = getActiveArtwork();
     item.mode = mode;
@@ -438,6 +453,7 @@ function renderArtworkItemsList() {
 
     artworkItemsList.appendChild(card);
   }
+  updateAddArtworkButtonVisibility();
 }
 
 function renderYearSelector() {
@@ -656,7 +672,7 @@ function reprocessCurrentImage(customWidth?: number, isManualThresholdChange?: b
   }
   const result = processImageToMatrix(item.image, {
     mode: item.mode,
-    threshold: item.threshold,
+    threshold: item.isUserManualThreshold ? item.threshold : undefined,
     invert: item.invert,
     customWidth: customWidth || item.width
   });
@@ -664,7 +680,7 @@ function reprocessCurrentImage(customWidth?: number, isManualThresholdChange?: b
   item.matrix = cloneMatrix(result.matrix);
   item.width = result.matrix[0]?.length || item.width;
   matrixStore.setMatrix(result.matrix);
-  if (item.mode === 'auto' && !item.isUserManualThreshold && !isManualThresholdChange) {
+  if (!item.isUserManualThreshold && !isManualThresholdChange) {
     item.threshold = result.calculatedThreshold;
     thresholdSlider.setValue(result.calculatedThreshold);
   }
@@ -717,15 +733,14 @@ function renderCurrentView(matrix: ContributionLevel[][]) {
       const artCol = isArtworkCol ? c - startCol : -1;
 
       for (let r = 0; r < 7; r++) {
-        let level: ContributionLevel = 0;
-        let isArtCell = false;
-
-        if (isArtworkCol) {
-          level = displayMatrix[r][artCol] || 0;
-          isArtCell = true;
-        } else if (showProfileContributions && userProfileCalendar) {
-          level = userProfileCalendar[c]?.[r] || 0;
-        }
+        const bgLevel: ContributionLevel = (showProfileContributions && userProfileCalendar)
+          ? (userProfileCalendar[c]?.[r] || 0)
+          : 0;
+        const artLevel: ContributionLevel = isArtworkCol
+          ? (displayMatrix[r][artCol] || 0)
+          : 0;
+        const isArtCell = isArtworkCol;
+        const level = Math.max(artLevel, bgLevel) as ContributionLevel;
         totalCommits += weightMap[level] || 0;
 
         const cell = document.createElement('div');
@@ -735,7 +750,9 @@ function renderCurrentView(matrix: ContributionLevel[][]) {
         cell.setAttribute('role', 'gridcell');
 
         if (isArtCell && canPaintDirectly) {
-          cell.title = `${activeItem.name} [Row ${r + 1}, Col ${artCol + 1}]: Level ${level}`;
+          cell.title = bgLevel > 0
+            ? `${activeItem.name} [Row ${r + 1}, Col ${artCol + 1}]: Art L${artLevel} · Profile L${bgLevel}`
+            : `${activeItem.name} [Row ${r + 1}, Col ${artCol + 1}]: Level ${artLevel}`;
           cell.addEventListener('pointerdown', (e) => {
             e.preventDefault();
             matrixStore.handlePointerDown(r, artCol);
@@ -744,9 +761,10 @@ function renderCurrentView(matrix: ContributionLevel[][]) {
             matrixStore.handlePointerEnter(r, artCol);
           });
         } else if (isArtCell && previewOwner) {
-          cell.title = `${previewOwner.name} [Row ${r + 1}, Col ${artCol + 1}]: Level ${level}`;
+          cell.title = bgLevel > 0
+            ? `${previewOwner.name} [Row ${r + 1}, Col ${artCol + 1}]: Art L${artLevel} · Profile L${bgLevel}`
+            : `${previewOwner.name} [Row ${r + 1}, Col ${artCol + 1}]: Level ${artLevel}`;
         } else {
-          const bgLevel = userProfileCalendar ? (userProfileCalendar[c]?.[r] || 0) : 0;
           cell.title = bgLevel > 0 ? `Profile Activity: Level ${bgLevel}` : `Profile Background [Col ${c + 1}]`;
         }
 
@@ -819,6 +837,7 @@ matrixStore.subscribe((matrix) => {
     const item = getActiveArtwork();
     item.matrix = cloneMatrix(matrix);
     item.width = matrix[0]?.length || item.width;
+    updateAddArtworkButtonVisibility();
     renderDeployPlan();
   }
   renderCurrentView(matrix);
@@ -880,7 +899,7 @@ async function handleFileUpload(file: File, targetId: string = activeArtworkId) 
 
     const result = processImageToMatrix(img, {
       mode: targetItem.mode,
-      threshold: targetItem.threshold,
+      threshold: undefined,
       invert: targetItem.invert,
       customWidth: targetWidth
     });
