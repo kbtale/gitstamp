@@ -16,6 +16,7 @@ export interface ArtConfig {
   matrix: ContributionLevel[][];
   years?: number[];
   patterns?: Record<string, YearPatternConfig>;
+  flattenBackground?: boolean;
   updatedAt: string;
 }
 

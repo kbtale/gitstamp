@@ -96,6 +96,23 @@ export function processImageToMatrix(
 
   const threshold = options.threshold !== undefined ? options.threshold : otsu.threshold;
 
+  let minLum = 255;
+  let maxLum = 0;
+  let opaqueCount = 0;
+
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] >= 128) {
+      const l = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+      if (l < minLum) minLum = l;
+      if (l > maxLum) maxLum = l;
+      opaqueCount++;
+    }
+  }
+
+  const lumSpan = Math.max(1, maxLum - minLum);
+  const normalizedMid = Math.max(0.02, Math.min(0.98, (threshold - minLum) / lumSpan));
+  const gamma = Math.log(0.5) / Math.log(normalizedMid);
+
   const matrix: ContributionLevel[][] = Array.from({ length: 7 }, () =>
     new Array<ContributionLevel>(width).fill(0)
   );
@@ -120,22 +137,33 @@ export function processImageToMatrix(
         const active = options.invert ? !isDark : isDark;
         matrix[row][col] = active ? 4 : 0;
       } else {
-        let norm = (255 - lum) / 255;
-        if (options.invert) {
-          norm = lum / 255;
-        }
+        const t = (lum - minLum) / lumSpan;
+        const norm = options.invert ? t : (1 - t);
+        const adjustedNorm = Math.pow(Math.max(0, Math.min(1, norm)), gamma);
 
         let level: ContributionLevel = 0;
-        if (norm >= 0.8) {
-          level = 4;
-        } else if (norm >= 0.55) {
-          level = 3;
-        } else if (norm >= 0.3) {
-          level = 2;
-        } else if (norm >= 0.1) {
-          level = 1;
+        if (hasTransparency) {
+          if (adjustedNorm >= 0.75) {
+            level = 4;
+          } else if (adjustedNorm >= 0.50) {
+            level = 3;
+          } else if (adjustedNorm >= 0.25) {
+            level = 2;
+          } else {
+            level = 1;
+          }
         } else {
-          level = 0;
+          if (adjustedNorm >= 0.80) {
+            level = 4;
+          } else if (adjustedNorm >= 0.55) {
+            level = 3;
+          } else if (adjustedNorm >= 0.35) {
+            level = 2;
+          } else if (adjustedNorm >= 0.15) {
+            level = 1;
+          } else {
+            level = 0;
+          }
         }
 
         matrix[row][col] = level;

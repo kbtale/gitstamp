@@ -45,6 +45,7 @@ let highlightBounds: boolean = true;
 let userProfileCalendar: ContributionLevel[][] | null = null;
 let userTotalContributions: number | null = null;
 let showProfileContributions: boolean = true;
+let flattenBackground: boolean = true;
 let isSyncingMatrix: boolean = false;
 
 const matrixStore = new MatrixStore(24);
@@ -67,6 +68,7 @@ const btnContributionSettings = document.getElementById('btn-contribution-settin
 const settingsDropdownMenu = document.getElementById('settings-dropdown-menu') as HTMLElement;
 const settingHighlightBounds = document.getElementById('setting-highlight-bounds') as HTMLInputElement;
 const settingProfileContributions = document.getElementById('setting-profile-contributions') as HTMLInputElement;
+const settingFlattenBackground = document.getElementById('setting-flatten-background') as HTMLInputElement;
 const settingBtnResetArt = document.getElementById('setting-btn-reset-art') as HTMLButtonElement;
 const targetRepoLink = document.getElementById('target-repo-link') as HTMLAnchorElement;
 const dayLabelsCol = document.getElementById('day-labels-col') as HTMLElement;
@@ -733,9 +735,12 @@ function renderCurrentView(matrix: ContributionLevel[][]) {
       const artCol = isArtworkCol ? c - startCol : -1;
 
       for (let r = 0; r < 7; r++) {
-        const bgLevel: ContributionLevel = (showProfileContributions && userProfileCalendar)
+        const rawBgLevel: ContributionLevel = (showProfileContributions && userProfileCalendar)
           ? (userProfileCalendar[c]?.[r] || 0)
           : 0;
+        const bgLevel: ContributionLevel = (flattenBackground && rawBgLevel > 0)
+          ? 1
+          : rawBgLevel;
         const artLevel: ContributionLevel = isArtworkCol
           ? (displayMatrix[r][artCol] || 0)
           : 0;
@@ -750,8 +755,8 @@ function renderCurrentView(matrix: ContributionLevel[][]) {
         cell.setAttribute('role', 'gridcell');
 
         if (isArtCell && canPaintDirectly) {
-          cell.title = bgLevel > 0
-            ? `${activeItem.name} [Row ${r + 1}, Col ${artCol + 1}]: Art L${artLevel} · Profile L${bgLevel}`
+          cell.title = rawBgLevel > 0
+            ? `${activeItem.name} [Row ${r + 1}, Col ${artCol + 1}]: Art L${artLevel} · Profile L${rawBgLevel}`
             : `${activeItem.name} [Row ${r + 1}, Col ${artCol + 1}]: Level ${artLevel}`;
           cell.addEventListener('pointerdown', (e) => {
             e.preventDefault();
@@ -761,11 +766,11 @@ function renderCurrentView(matrix: ContributionLevel[][]) {
             matrixStore.handlePointerEnter(r, artCol);
           });
         } else if (isArtCell && previewOwner) {
-          cell.title = bgLevel > 0
-            ? `${previewOwner.name} [Row ${r + 1}, Col ${artCol + 1}]: Art L${artLevel} · Profile L${bgLevel}`
+          cell.title = rawBgLevel > 0
+            ? `${previewOwner.name} [Row ${r + 1}, Col ${artCol + 1}]: Art L${artLevel} · Profile L${rawBgLevel}`
             : `${previewOwner.name} [Row ${r + 1}, Col ${artCol + 1}]: Level ${artLevel}`;
         } else {
-          cell.title = bgLevel > 0 ? `Profile Activity: Level ${bgLevel}` : `Profile Background [Col ${c + 1}]`;
+          cell.title = rawBgLevel > 0 ? `Profile Activity: Level ${rawBgLevel}` : `Profile Background [Col ${c + 1}]`;
         }
 
         contributionMatrix.appendChild(cell);
@@ -952,6 +957,13 @@ if (settingProfileContributions) {
   });
 }
 
+if (settingFlattenBackground) {
+  settingFlattenBackground.addEventListener('change', () => {
+    flattenBackground = settingFlattenBackground.checked;
+    renderCurrentView(matrixStore.getMatrix());
+  });
+}
+
 settingBtnResetArt.addEventListener('click', () => {
   matrixStore.clear();
   settingsDropdownMenu.style.display = 'none';
@@ -1107,6 +1119,13 @@ async function checkExistingUserRepo() {
           loadedItems.push(item);
         }
 
+        if (existing.config.flattenBackground !== undefined) {
+          flattenBackground = existing.config.flattenBackground;
+          if (settingFlattenBackground) {
+            settingFlattenBackground.checked = flattenBackground;
+          }
+        }
+
         if (loadedItems.length > 0) {
           for (const old of artworkItems) {
             if (old.imageThumbUrl) {
@@ -1209,6 +1228,7 @@ btnDeploy.addEventListener('click', async () => {
       matrix: primaryMatrix,
       years: sortedYears,
       patterns,
+      flattenBackground,
       updatedAt: new Date().toISOString()
     };
 

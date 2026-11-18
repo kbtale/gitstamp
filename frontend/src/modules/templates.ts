@@ -31,7 +31,7 @@ jobs:
 `;
 
 export const RENDER_MJS_TEMPLATE = `import { readFileSync } from 'node:fs';
-import { execSync } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
 
 function run(command, env = {}) {
   return execSync(command, {
@@ -113,7 +113,7 @@ async function fetchContributionCalendar(token, from, to) {
   return json.data.viewer.contributionsCollection.contributionCalendar;
 }
 
-function determineQuartileThresholds(calendar) {
+function determineQuartileThresholds(calendar, flattenBackground = true) {
   const levelMap = {
     NONE: 0,
     FIRST_QUARTILE: 1,
@@ -129,17 +129,41 @@ function determineQuartileThresholds(calendar) {
     3: Infinity,
     4: Infinity
   };
+  const activeCounts = [];
 
   for (const week of calendar.weeks) {
     for (const day of week.contributionDays) {
       existingMap.set(day.date, day.contributionCount);
       const lvl = levelMap[day.contributionLevel];
+      if (day.contributionCount > 0) {
+        activeCounts.push(day.contributionCount);
+      }
       if (lvl >= 1 && lvl <= 4) {
         if (day.contributionCount < minCounts[lvl]) {
           minCounts[lvl] = day.contributionCount;
         }
       }
     }
+  }
+
+  if (flattenBackground) {
+    activeCounts.sort((a, b) => a - b);
+    let p95 = 0;
+    if (activeCounts.length > 0) {
+      const idx = Math.min(activeCounts.length - 1, Math.floor(activeCounts.length * 0.95));
+      p95 = activeCounts[idx];
+    }
+    const q = Math.max(12, Math.min(50, p95 + 2));
+    return {
+      existingMap,
+      thresholds: {
+        0: 0,
+        1: 1,
+        2: q,
+        3: 2 * q,
+        4: 3 * q
+      }
+    };
   }
 
   if (!Number.isFinite(minCounts[1])) {
@@ -196,6 +220,7 @@ async function main() {
   ));
 
   const yearsToProcess = Array.isArray(art.years) && art.years.length > 0 ? art.years : [currentYear];
+  const flattenBg = art.flattenBackground !== false;
   const commitsByDate = [];
   const processedDates = new Set();
 
@@ -229,7 +254,7 @@ async function main() {
       totalCols = Math.ceil(totalDays / 7);
     }
 
-    const { existingMap, thresholds } = determineQuartileThresholds(calendar);
+    const { existingMap, thresholds } = determineQuartileThresholds(calendar, flattenBg);
     const matrixWidth = yearMatrix[0]?.length || 0;
     if (matrixWidth === 0 || matrixWidth > totalCols) {
       continue;
@@ -285,20 +310,38 @@ async function main() {
   run('git add -A');
   run('git commit -m "chore(gitstamp): base sync"');
 
-  for (const item of commitsByDate) {
-    const isoDate = \`\${item.dateStr}T12:00:00Z\`;
-    const env = {
-      GIT_AUTHOR_DATE: isoDate,
-      GIT_COMMITTER_DATE: isoDate,
-      GIT_AUTHOR_NAME: authorName,
-      GIT_AUTHOR_EMAIL: authorEmail,
-      GIT_COMMITTER_NAME: authorName,
-      GIT_COMMITTER_EMAIL: authorEmail
-    };
+  if (commitsByDate.length > 0) {
+    const baseSha = run('git rev-parse HEAD').trim();
+    let input = '';
+    let markId = 1;
 
-    for (let i = 0; i < item.count; i++) {
-      run('git commit --allow-empty -m "art: render"', env);
+    for (const item of commitsByDate) {
+      const unixTimestamp = Math.floor(new Date(\`\${item.dateStr}T12:00:00Z\`).getTime() / 1000);
+      const authorHeader = \`\${authorName} <\${authorEmail}> \${unixTimestamp} +0000\`;
+      for (let i = 0; i < item.count; i++) {
+        input += \`commit refs/heads/temp-render\\nmark :\${markId}\\nauthor \${authorHeader}\\ncommitter \${authorHeader}\\ndata 11\\nart: render\\n\`;
+        if (markId === 1) {
+          input += \`from \${baseSha}\\n\`;
+        }
+        input += '\\n';
+        markId++;
+      }
     }
+
+    const importResult = spawnSync('git', ['fast-import', '--quiet'], {
+      input,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      encoding: 'utf8'
+    });
+
+    if (importResult.error) {
+      throw importResult.error;
+    }
+    if (importResult.status !== 0) {
+      throw new Error(\`git fast-import failed: \${importResult.stderr || 'unknown error'}\`);
+    }
+
+    run('git reset --hard refs/heads/temp-render');
   }
 
   run('git branch -M main');
