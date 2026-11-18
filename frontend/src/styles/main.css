@@ -712,6 +712,78 @@ input:checked + .slider-knob:before {
   font-size: 0.75rem;
 }
 
+.year-selector-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  background-color: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--gh-preview-border);
+  border-radius: var(--radius-md);
+  padding: 2px;
+}
+
+.year-pill {
+  background: none;
+  border: none;
+  color: var(--gh-preview-text);
+  padding: 0.125rem 0.5rem;
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  line-height: 1.4;
+}
+
+.year-pill:hover {
+  background-color: rgba(88, 166, 255, 0.15);
+  color: #58a6ff;
+}
+
+.year-pill.active {
+  background-color: #1f6feb;
+  color: #ffffff;
+  cursor: default;
+}
+
+.target-years-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.target-year-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background-color: var(--color-bg-base);
+  color: var(--color-text-main);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  user-select: none;
+  transition: all var(--transition-fast);
+}
+
+.target-year-chip:hover {
+  border-color: #58a6ff;
+}
+
+.target-year-chip.selected {
+  background-color: rgba(31, 111, 235, 0.12);
+  border-color: #1f6feb;
+  color: #58a6ff;
+  font-weight: 600;
+}
+
+.target-year-chip input[type="checkbox"] {
+  accent-color: #1f6feb;
+  cursor: pointer;
+}
+
 .full-calendar-wrapper {
   display: flex;
   flex-direction: column;

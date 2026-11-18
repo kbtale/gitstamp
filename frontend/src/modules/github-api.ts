@@ -211,25 +211,60 @@ export async function starRepo(
   } catch {}
 }
 
-export async function fetchUserContributions(token: string): Promise<UserContributionData | null> {
-  const query = `
-    query {
-      viewer {
-        contributionsCollection {
-          contributionCalendar {
-            totalContributions
-            weeks {
-              contributionDays {
-                date
-                contributionCount
-                contributionLevel
+export async function fetchUserContributions(
+  token: string,
+  year?: number
+): Promise<UserContributionData | null> {
+  const now = new Date();
+  const currentYear = now.getUTCFullYear();
+  const isPastYear = typeof year === 'number' && year < currentYear;
+
+  let query: string;
+  let variables: Record<string, string> = {};
+
+  if (isPastYear) {
+    query = `
+      query($from: DateTime!, $to: DateTime!) {
+        viewer {
+          contributionsCollection(from: $from, to: $to) {
+            contributionCalendar {
+              totalContributions
+              weeks {
+                contributionDays {
+                  date
+                  contributionCount
+                  contributionLevel
+                }
               }
             }
           }
         }
       }
-    }
-  `;
+    `;
+    variables = {
+      from: `${year}-01-01T00:00:00Z`,
+      to: `${year}-12-31T23:59:59Z`
+    };
+  } else {
+    query = `
+      query {
+        viewer {
+          contributionsCollection {
+            contributionCalendar {
+              totalContributions
+              weeks {
+                contributionDays {
+                  date
+                  contributionCount
+                  contributionLevel
+                }
+              }
+            }
+          }
+        }
+      }
+    `;
+  }
 
   try {
     const res = await fetch('https://api.github.com/graphql', {
@@ -239,7 +274,7 @@ export async function fetchUserContributions(token: string): Promise<UserContrib
         'Content-Type': 'application/json',
         'User-Agent': 'GitStamp'
       },
-      body: JSON.stringify({ query })
+      body: JSON.stringify({ query, variables })
     });
 
     if (!res.ok) {
@@ -260,7 +295,7 @@ export async function fetchUserContributions(token: string): Promise<UserContrib
       FOURTH_QUARTILE: 4
     };
 
-    const targetWeeks = calendar.weeks.slice(-53);
+    const targetWeeks = isPastYear ? calendar.weeks : calendar.weeks.slice(-53);
     const matrix: ContributionLevel[][] = [];
 
     for (let c = 0; c < 53; c++) {

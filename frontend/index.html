@@ -140,7 +140,7 @@
                   </button>
                 </div>
               </div>
-              <span class="profile-year-pill" id="profile-year-label">2026</span>
+              <div class="year-selector-bar" id="year-selector-container"></div>
             </div>
           </div>
 
@@ -184,6 +184,16 @@
               <span>Target repository: </span>
               <a href="#" id="target-repo-link" target="_blank" rel="noopener noreferrer">https://github.com/:username/gitstamp-art</a>
             </div>
+          </div>
+
+          <div class="form-group">
+            <label class="control-label">Target Profile Years</label>
+            <div class="target-years-pills" id="target-years-container"></div>
+            <label class="checkbox-label" style="margin-top: 0.5rem; display: flex; align-items: center; gap: 0.5rem; font-size: 0.8125rem; color: var(--color-text-main); cursor: pointer;">
+              <input type="checkbox" id="sync-all-years-checkbox" checked />
+              <span>Apply current canvas artwork across all selected years</span>
+            </label>
+            <div class="form-hint">Selected years will be stamped into your GitHub profile and kept updated.</div>
           </div>
 
           <button type="button" class="btn btn-primary btn-lg" id="btn-deploy">
