@@ -49,7 +49,22 @@
     <div class="studio-grid">
       <aside class="panel">
         <div class="panel-title">
-          <span>Image Converter</span>
+          <span>Artworks</span>
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-add-artwork">+ Add Artwork</button>
+        </div>
+
+        <div class="artwork-items-list" id="artwork-items-list"></div>
+
+        <div class="sidebar-divider"></div>
+
+        <div class="panel-title">
+          <span id="active-artwork-editor-title">Artwork 1</span>
+        </div>
+
+        <div class="control-group">
+          <label class="control-label">Assigned Years</label>
+          <div class="target-years-pills" id="item-years-container"></div>
+          <div class="form-hint">Pick which profile year(s) this artwork will be stamped onto.</div>
         </div>
 
         <div class="upload-dropzone" id="upload-dropzone">
@@ -187,13 +202,9 @@
           </div>
 
           <div class="form-group">
-            <label class="control-label">Target Profile Years</label>
-            <div class="target-years-pills" id="target-years-container"></div>
-            <label class="checkbox-label" style="margin-top: 0.5rem; display: flex; align-items: center; gap: 0.5rem; font-size: 0.8125rem; color: var(--color-text-main); cursor: pointer;">
-              <input type="checkbox" id="sync-all-years-checkbox" checked />
-              <span>Apply current canvas artwork across all selected years</span>
-            </label>
-            <div class="form-hint">Selected years will be stamped into your GitHub profile and kept updated.</div>
+            <label class="control-label">Year Deployment Plan</label>
+            <div class="deploy-plan-list" id="deploy-plan-container"></div>
+            <div class="form-hint">Each assigned year will be stamped with its corresponding artwork on your GitHub profile.</div>
           </div>
 
           <button type="button" class="btn btn-primary btn-lg" id="btn-deploy">
