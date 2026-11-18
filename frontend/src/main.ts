@@ -1,5 +1,5 @@
 import './styles/main.css';
-import { ContributionLevel, ProcessingMode, AppTheme, UserProfile } from './types';
+import { ArtworkItem, ContributionLevel, ProcessingMode, AppTheme, UserProfile } from './types';
 import { MatrixStore } from './modules/matrix-state';
 import { loadImageFromFile, processImageToMatrix } from './modules/image-processor';
 import {
@@ -39,21 +39,23 @@ let activeClientId: string = DEFAULT_CLIENT_ID;
 let activeAppSlug: string = DEFAULT_APP_SLUG;
 
 let currentUser: UserProfile | null = getStoredUser();
-let currentImage: HTMLImageElement | null = null;
-let currentMode: ProcessingMode = 'auto';
-let currentThreshold: number = 128;
-let currentInvert: boolean = false;
 let currentTheme: AppTheme = 'dark';
 let currentViewMode: 'profile' | 'editor' = 'profile';
 let highlightBounds: boolean = true;
 let userProfileCalendar: ContributionLevel[][] | null = null;
 let userTotalContributions: number | null = null;
 let showProfileContributions: boolean = true;
+let isSyncingMatrix: boolean = false;
 
 const matrixStore = new MatrixStore(24);
 
 const authStatusContainer = document.getElementById('auth-status-container') as HTMLElement;
 const btnOpenAuth = document.getElementById('btn-open-auth') as HTMLButtonElement;
+
+const btnAddArtwork = document.getElementById('btn-add-artwork') as HTMLButtonElement;
+const artworkItemsList = document.getElementById('artwork-items-list') as HTMLElement;
+const activeArtworkEditorTitle = document.getElementById('active-artwork-editor-title') as HTMLElement;
+const itemYearsContainer = document.getElementById('item-years-container') as HTMLElement;
 
 const uploadDropzone = document.getElementById('upload-dropzone') as HTMLElement;
 const dropzoneEmpty = document.getElementById('dropzone-empty') as HTMLElement;
@@ -90,8 +92,7 @@ const contributionMatrix = document.getElementById('contribution-matrix') as HTM
 const graphDimensionsDisplay = document.getElementById('graph-dimensions-display') as HTMLElement;
 const profileTotalCommits = document.getElementById('profile-total-commits') as HTMLElement;
 const yearSelectorContainer = document.getElementById('year-selector-container') as HTMLElement;
-const targetYearsContainer = document.getElementById('target-years-container') as HTMLElement;
-const syncAllYearsCheckbox = document.getElementById('sync-all-years-checkbox') as HTMLInputElement;
+const deployPlanContainer = document.getElementById('deploy-plan-container') as HTMLElement;
 
 const repoNameInput = document.getElementById('repo-name-input') as HTMLInputElement;
 const repoStatusBadge = document.getElementById('repo-status-badge') as HTMLElement;
@@ -109,124 +110,62 @@ const availableYears: number[] = [
   currentYear - 3,
   currentYear - 4
 ];
-let selectedTargetYears: Set<number> = new Set([currentYear]);
 let activePreviewYear: number = currentYear;
-let syncAllYears: boolean = true;
-const yearPatterns: Map<number, ContributionLevel[][]> = new Map();
+let artworkCounter = 1;
 const yearContributionsCache: Map<number, { matrix: ContributionLevel[][]; totalContributions: number }> = new Map();
 
-function renderYearSelector() {
-  if (!yearSelectorContainer) {
-    return;
-  }
-  yearSelectorContainer.innerHTML = '';
-  for (const yr of availableYears) {
-    const isTargeted = selectedTargetYears.has(yr);
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = `year-pill ${yr === activePreviewYear ? 'active' : ''} ${isTargeted ? 'target-enabled' : ''}`.trim();
-    btn.textContent = String(yr);
-    btn.title = yr === currentYear
-      ? `View rolling current year (${yr})${isTargeted ? ' — artwork enabled' : ' — not selected'}`
-      : `View calendar year ${yr}${isTargeted ? ' — artwork enabled' : ' — not selected'}`;
-    btn.addEventListener('click', async () => {
-      if (yr === activePreviewYear) {
-        return;
-      }
-      if (!syncAllYears && selectedTargetYears.has(activePreviewYear)) {
-        yearPatterns.set(activePreviewYear, matrixStore.getMatrix());
-      }
-      activePreviewYear = yr;
-      if (!syncAllYears) {
-        if (yearPatterns.has(yr)) {
-          const saved = yearPatterns.get(yr)!;
-          matrixStore.setMatrix(saved);
-          widthSlider.setValue(saved[0]?.length || 24);
-        } else {
-          matrixStore.clear();
-        }
-      }
-      renderYearSelector();
-      await loadUserContributions(activePreviewYear);
-      renderCurrentView(matrixStore.getMatrix());
-    });
-    yearSelectorContainer.appendChild(btn);
-  }
+function createEmptyMatrix(width: number = 24): ContributionLevel[][] {
+  return Array.from({ length: 7 }, () => new Array<ContributionLevel>(width).fill(0));
 }
 
-function renderTargetYearsPills() {
-  if (!targetYearsContainer) {
-    return;
-  }
-  targetYearsContainer.innerHTML = '';
-  for (const yr of availableYears) {
-    const isSelected = selectedTargetYears.has(yr);
-    const chip = document.createElement('label');
-    chip.className = `target-year-chip ${isSelected ? 'selected' : ''}`;
-
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.checked = isSelected;
-
-    checkbox.addEventListener('change', () => {
-      if (checkbox.checked) {
-        selectedTargetYears.add(yr);
-        if (syncAllYears) {
-          yearPatterns.set(yr, matrixStore.getMatrix());
-        } else if (yr === activePreviewYear) {
-          if (yearPatterns.has(yr)) {
-            const saved = yearPatterns.get(yr)!;
-            matrixStore.setMatrix(saved);
-            widthSlider.setValue(saved[0]?.length || 24);
-          } else {
-            matrixStore.clear();
-          }
-        }
-      } else {
-        if (selectedTargetYears.size <= 1) {
-          checkbox.checked = true;
-          return;
-        }
-        selectedTargetYears.delete(yr);
-      }
-      chip.classList.toggle('selected', checkbox.checked);
-      renderYearSelector();
-      renderCurrentView(matrixStore.getMatrix());
-    });
-
-    const labelSpan = document.createElement('span');
-    labelSpan.textContent = yr === currentYear ? `${yr} (Rolling)` : String(yr);
-
-    chip.appendChild(checkbox);
-    chip.appendChild(labelSpan);
-    targetYearsContainer.appendChild(chip);
-  }
+function cloneMatrix(matrix: ContributionLevel[][]): ContributionLevel[][] {
+  return matrix.map((row) => [...row]);
 }
 
-renderYearSelector();
-renderTargetYearsPills();
+function createArtworkItem(
+  years: number[] = [],
+  name?: string,
+  matrix?: ContributionLevel[][]
+): ArtworkItem {
+  const index = artworkCounter++;
+  const mat = matrix ? cloneMatrix(matrix) : createEmptyMatrix(24);
+  return {
+    id: `art-${Date.now()}-${index}`,
+    name: name || `Artwork ${index}`,
+    image: null,
+    imageThumbUrl: null,
+    imageFilename: null,
+    imageDims: null,
+    mode: 'auto',
+    threshold: 128,
+    isUserManualThreshold: false,
+    invert: false,
+    width: mat[0]?.length || 24,
+    matrix: mat,
+    years: new Set(years)
+  };
+}
 
-if (syncAllYearsCheckbox) {
-  syncAllYearsCheckbox.addEventListener('change', () => {
-    syncAllYears = syncAllYearsCheckbox.checked;
-    if (syncAllYears) {
-      const sourceMatrix = selectedTargetYears.has(activePreviewYear)
-        ? matrixStore.getMatrix()
-        : (yearPatterns.get(Array.from(selectedTargetYears)[0]) || matrixStore.getMatrix());
-      if (!selectedTargetYears.has(activePreviewYear)) {
-        matrixStore.setMatrix(sourceMatrix);
-      }
-      for (const yr of selectedTargetYears) {
-        yearPatterns.set(yr, sourceMatrix.map((row) => [...row]));
-      }
-    } else if (selectedTargetYears.has(activePreviewYear)) {
-      yearPatterns.set(activePreviewYear, matrixStore.getMatrix());
+let artworkItems: ArtworkItem[] = [createArtworkItem([currentYear])];
+let activeArtworkId: string = artworkItems[0].id;
+
+function getActiveArtwork(): ArtworkItem {
+  return artworkItems.find((item) => item.id === activeArtworkId) || artworkItems[0];
+}
+
+function getArtworkForYear(year: number): ArtworkItem | undefined {
+  return artworkItems.find((item) => item.years.has(year));
+}
+
+function getAllAssignedYears(): number[] {
+  const years = new Set<number>();
+  for (const item of artworkItems) {
+    for (const yr of item.years) {
+      years.add(yr);
     }
-    renderCurrentView(matrixStore.getMatrix());
-  });
+  }
+  return Array.from(years).sort((a, b) => b - a);
 }
-
-let isUserManualThreshold = false;
 
 const modeControl = createSegmentedControl<ProcessingMode>({
   container: modeContainer,
@@ -237,9 +176,10 @@ const modeControl = createSegmentedControl<ProcessingMode>({
   ],
   initialValue: 'auto',
   onChange: (mode) => {
-    currentMode = mode;
+    const item = getActiveArtwork();
+    item.mode = mode;
     if (mode === 'auto') {
-      isUserManualThreshold = false;
+      item.isUserManualThreshold = false;
     }
     reprocessCurrentImage();
   }
@@ -252,10 +192,11 @@ const thresholdSlider = createSlider({
   initialValue: 128,
   label: 'Threshold',
   onChange: (val) => {
-    currentThreshold = val;
-    isUserManualThreshold = true;
-    if (currentMode === 'auto') {
-      currentMode = 'bicolor';
+    const item = getActiveArtwork();
+    item.threshold = val;
+    item.isUserManualThreshold = true;
+    if (item.mode === 'auto') {
+      item.mode = 'bicolor';
       modeControl.setValue('bicolor');
     }
     reprocessCurrentImage(undefined, true);
@@ -267,7 +208,8 @@ const invertToggle = createToggleSwitch({
   label: 'Invert Colors',
   initialChecked: false,
   onChange: (checked) => {
-    currentInvert = checked;
+    const item = getActiveArtwork();
+    item.invert = checked;
     reprocessCurrentImage();
   }
 });
@@ -279,11 +221,323 @@ const widthSlider = createSlider({
   initialValue: 24,
   label: 'Columns Width',
   onChange: (cols) => {
+    const item = getActiveArtwork();
+    item.width = cols;
     matrixStore.setWidth(cols);
-    if (currentImage) {
+    if (item.image) {
       reprocessCurrentImage(cols);
     }
+    renderDeployPlan();
   }
+});
+
+function syncSidebarToActiveArtwork() {
+  const item = getActiveArtwork();
+  if (activeArtworkEditorTitle) {
+    activeArtworkEditorTitle.textContent = item.name;
+  }
+  fileInput.value = '';
+  if (item.image && item.imageThumbUrl) {
+    dropzoneThumb.src = item.imageThumbUrl;
+    dropzoneFilename.textContent = item.imageFilename || item.name;
+    dropzoneDims.textContent = item.imageDims || '';
+    dropzoneEmpty.style.display = 'none';
+    dropzoneActive.style.display = 'flex';
+  } else {
+    dropzoneThumb.removeAttribute('src');
+    dropzoneEmpty.style.display = 'block';
+    dropzoneActive.style.display = 'none';
+  }
+  modeControl.setValue(item.mode);
+  thresholdSlider.setValue(item.threshold);
+  invertToggle.setChecked(item.invert);
+  widthSlider.setValue(item.width);
+  renderItemYearsPills();
+}
+
+function renderArtworkItemsList() {
+  if (!artworkItemsList) {
+    return;
+  }
+  artworkItemsList.innerHTML = '';
+
+  for (const item of artworkItems) {
+    const card = document.createElement('div');
+    card.className = `artwork-item-card ${item.id === activeArtworkId ? 'active' : ''}`.trim();
+    card.setAttribute('role', 'button');
+    card.tabIndex = 0;
+
+    const thumb = document.createElement('div');
+    thumb.className = 'artwork-item-thumb';
+    if (item.imageThumbUrl) {
+      const img = document.createElement('img');
+      img.src = item.imageThumbUrl;
+      img.alt = item.name;
+      thumb.appendChild(img);
+    } else {
+      const gridIcon = document.createElement('div');
+      gridIcon.className = 'artwork-item-thumb-grid';
+      for (let i = 0; i < 9; i++) {
+        gridIcon.appendChild(document.createElement('span'));
+      }
+      thumb.appendChild(gridIcon);
+    }
+
+    const info = document.createElement('div');
+    info.className = 'artwork-item-info';
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'artwork-item-name';
+    nameEl.textContent = item.name;
+
+    const yearsRow = document.createElement('div');
+    yearsRow.className = 'artwork-item-years';
+    const sortedYears = Array.from(item.years).sort((a, b) => b - a);
+    if (sortedYears.length === 0) {
+      const badge = document.createElement('span');
+      badge.className = 'artwork-year-badge unassigned';
+      badge.textContent = 'Unassigned';
+      yearsRow.appendChild(badge);
+    } else {
+      for (const yr of sortedYears) {
+        const badge = document.createElement('span');
+        badge.className = 'artwork-year-badge';
+        badge.textContent = String(yr);
+        yearsRow.appendChild(badge);
+      }
+    }
+
+    info.appendChild(nameEl);
+    info.appendChild(yearsRow);
+    card.appendChild(thumb);
+    card.appendChild(info);
+
+    if (artworkItems.length > 1) {
+      const deleteBtn = document.createElement('button');
+      deleteBtn.type = 'button';
+      deleteBtn.className = 'btn-delete-artwork';
+      deleteBtn.title = `Remove ${item.name}`;
+      deleteBtn.textContent = '✕';
+      deleteBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteArtworkItem(item.id);
+      });
+      card.appendChild(deleteBtn);
+    }
+
+    card.addEventListener('click', () => {
+      selectArtworkItem(item.id, true);
+    });
+
+    card.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        selectArtworkItem(item.id, true);
+      }
+    });
+
+    artworkItemsList.appendChild(card);
+  }
+}
+
+function renderItemYearsPills() {
+  if (!itemYearsContainer) {
+    return;
+  }
+  itemYearsContainer.innerHTML = '';
+  const activeItem = getActiveArtwork();
+
+  for (const yr of availableYears) {
+    const owner = getArtworkForYear(yr);
+    const isOwnedByActive = owner?.id === activeItem.id;
+    const isOwnedElsewhere = Boolean(owner && owner.id !== activeItem.id);
+
+    const chip = document.createElement('label');
+    chip.className = `target-year-chip ${isOwnedByActive ? 'selected' : ''} ${isOwnedElsewhere ? 'assigned-elsewhere' : ''}`.trim();
+    if (isOwnedElsewhere && owner) {
+      chip.title = `Currently assigned to ${owner.name} — click to assign to ${activeItem.name}`;
+    }
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = isOwnedByActive;
+
+    checkbox.addEventListener('change', async () => {
+      if (checkbox.checked) {
+        for (const item of artworkItems) {
+          if (item.id !== activeItem.id) {
+            item.years.delete(yr);
+          }
+        }
+        activeItem.years.add(yr);
+        activePreviewYear = yr;
+        renderArtworkItemsList();
+        renderItemYearsPills();
+        renderYearSelector();
+        renderDeployPlan();
+        await loadUserContributions(activePreviewYear);
+        renderCurrentView(matrixStore.getMatrix());
+      } else {
+        activeItem.years.delete(yr);
+        renderArtworkItemsList();
+        renderItemYearsPills();
+        renderYearSelector();
+        renderDeployPlan();
+        renderCurrentView(matrixStore.getMatrix());
+      }
+    });
+
+    const labelSpan = document.createElement('span');
+    labelSpan.textContent = yr === currentYear ? `${yr} (Rolling)` : String(yr);
+
+    chip.appendChild(checkbox);
+    chip.appendChild(labelSpan);
+    itemYearsContainer.appendChild(chip);
+  }
+}
+
+function renderYearSelector() {
+  if (!yearSelectorContainer) {
+    return;
+  }
+  yearSelectorContainer.innerHTML = '';
+  for (const yr of availableYears) {
+    const owner = getArtworkForYear(yr);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `year-pill ${yr === activePreviewYear ? 'active' : ''} ${owner ? 'target-enabled' : ''}`.trim();
+    btn.textContent = String(yr);
+    btn.title = owner
+      ? `${yr} — ${owner.name}`
+      : `${yr} — no artwork assigned`;
+    btn.addEventListener('click', async () => {
+      if (yr === activePreviewYear) {
+        return;
+      }
+      activePreviewYear = yr;
+      const yearOwner = getArtworkForYear(yr);
+      if (yearOwner && yearOwner.id !== activeArtworkId) {
+        await selectArtworkItem(yearOwner.id, false);
+        return;
+      }
+      renderYearSelector();
+      await loadUserContributions(activePreviewYear);
+      renderCurrentView(matrixStore.getMatrix());
+    });
+    yearSelectorContainer.appendChild(btn);
+  }
+}
+
+function renderDeployPlan() {
+  if (!deployPlanContainer) {
+    return;
+  }
+  deployPlanContainer.innerHTML = '';
+  const assignedYears = getAllAssignedYears();
+
+  if (assignedYears.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'deploy-plan-empty';
+    empty.textContent = 'No years assigned yet — select at least one year on an artwork above.';
+    deployPlanContainer.appendChild(empty);
+    btnDeploy.disabled = true;
+    return;
+  }
+
+  btnDeploy.disabled = false;
+
+  for (const yr of assignedYears) {
+    const owner = getArtworkForYear(yr);
+    if (!owner) {
+      continue;
+    }
+    const row = document.createElement('div');
+    row.className = 'deploy-plan-row';
+    row.title = `Click to preview ${yr} (${owner.name})`;
+
+    const yearEl = document.createElement('span');
+    yearEl.className = 'deploy-plan-year';
+    yearEl.textContent = yr === currentYear ? `${yr} (Rolling)` : String(yr);
+
+    const artEl = document.createElement('span');
+    artEl.className = 'deploy-plan-artwork';
+    artEl.textContent = owner.name;
+
+    const dimsEl = document.createElement('span');
+    dimsEl.className = 'deploy-plan-dims';
+    dimsEl.textContent = `7 × ${owner.matrix[0]?.length || 0}`;
+
+    row.appendChild(yearEl);
+    row.appendChild(artEl);
+    row.appendChild(dimsEl);
+
+    row.addEventListener('click', async () => {
+      activePreviewYear = yr;
+      await selectArtworkItem(owner.id, false);
+    });
+
+    deployPlanContainer.appendChild(row);
+  }
+}
+
+async function selectArtworkItem(id: string, syncPreviewYear: boolean = true) {
+  const prev = getActiveArtwork();
+  if (prev) {
+    prev.matrix = matrixStore.getMatrix();
+    prev.width = prev.matrix[0]?.length || prev.width;
+  }
+
+  activeArtworkId = id;
+  const next = getActiveArtwork();
+
+  if (syncPreviewYear && next.years.size > 0 && !next.years.has(activePreviewYear)) {
+    const sorted = Array.from(next.years).sort((a, b) => b - a);
+    activePreviewYear = sorted[0];
+  }
+
+  isSyncingMatrix = true;
+  matrixStore.setMatrix(next.matrix);
+  isSyncingMatrix = false;
+
+  syncSidebarToActiveArtwork();
+  renderArtworkItemsList();
+  renderYearSelector();
+  renderDeployPlan();
+  await loadUserContributions(activePreviewYear);
+  renderCurrentView(matrixStore.getMatrix());
+}
+
+async function deleteArtworkItem(id: string) {
+  if (artworkItems.length <= 1) {
+    return;
+  }
+  const index = artworkItems.findIndex((item) => item.id === id);
+  if (index === -1) {
+    return;
+  }
+  const removed = artworkItems[index];
+  if (removed.imageThumbUrl) {
+    URL.revokeObjectURL(removed.imageThumbUrl);
+  }
+  artworkItems.splice(index, 1);
+
+  if (activeArtworkId === id) {
+    const fallback = artworkItems[Math.max(0, index - 1)];
+    await selectArtworkItem(fallback.id, true);
+  } else {
+    renderArtworkItemsList();
+    renderItemYearsPills();
+    renderYearSelector();
+    renderDeployPlan();
+    renderCurrentView(matrixStore.getMatrix());
+  }
+}
+
+btnAddArtwork.addEventListener('click', async () => {
+  const unassignedYear = availableYears.find((yr) => !getArtworkForYear(yr));
+  const newItem = createArtworkItem(unassignedYear !== undefined ? [unassignedYear] : []);
+  artworkItems.push(newItem);
+  await selectArtworkItem(newItem.id, true);
 });
 
 btnThemeToggle.addEventListener('click', () => {
@@ -331,6 +585,7 @@ function renderMonthLabels(year: number = activePreviewYear) {
     const jan1Day = jan1.getUTCDay();
     col0Sunday = new Date(Date.UTC(year, 0, 1 - jan1Day));
   }
+
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
   let lastMonth = -1;
@@ -352,21 +607,25 @@ function renderMonthLabels(year: number = activePreviewYear) {
 }
 
 function reprocessCurrentImage(customWidth?: number, isManualThresholdChange?: boolean) {
-  if (!currentImage) {
+  const item = getActiveArtwork();
+  if (!item.image) {
     return;
   }
-  const result = processImageToMatrix(currentImage, {
-    mode: currentMode,
-    threshold: currentThreshold,
-    invert: currentInvert,
-    customWidth: customWidth || matrixStore.getWidth()
+  const result = processImageToMatrix(item.image, {
+    mode: item.mode,
+    threshold: item.threshold,
+    invert: item.invert,
+    customWidth: customWidth || item.width
   });
 
+  item.matrix = cloneMatrix(result.matrix);
+  item.width = result.matrix[0]?.length || item.width;
   matrixStore.setMatrix(result.matrix);
-  if (currentMode === 'auto' && !isUserManualThreshold && !isManualThresholdChange) {
-    currentThreshold = result.calculatedThreshold;
+  if (item.mode === 'auto' && !item.isUserManualThreshold && !isManualThresholdChange) {
+    item.threshold = result.calculatedThreshold;
     thresholdSlider.setValue(result.calculatedThreshold);
   }
+  renderDeployPlan();
 }
 
 function updateHistoryButtons() {
@@ -375,10 +634,14 @@ function updateHistoryButtons() {
 }
 
 function renderCurrentView(matrix: ContributionLevel[][]) {
+  const activeItem = getActiveArtwork();
+  const previewOwner = getArtworkForYear(activePreviewYear);
+  const displayMatrix = currentViewMode === 'profile'
+    ? (previewOwner ? (previewOwner.id === activeItem.id ? matrix : previewOwner.matrix) : matrix)
+    : matrix;
   const artHeight = 7;
-  const artWidth = matrix[0]?.length || 0;
+  const artWidth = displayMatrix[0]?.length || 0;
   const startCol = Math.floor((53 - artWidth) / 2);
-  const isYearTargeted = selectedTargetYears.has(activePreviewYear);
   const commitsLabel = activePreviewYear === currentYear
     ? 'contributions in the last year'
     : `contributions in ${activePreviewYear}`;
@@ -395,8 +658,11 @@ function renderCurrentView(matrix: ContributionLevel[][]) {
   };
 
   if (currentViewMode === 'profile') {
+    const isYearAssigned = Boolean(previewOwner);
+    const canPaintDirectly = Boolean(previewOwner && previewOwner.id === activeItem.id);
+
     graphPreviewContainer.classList.remove('editor-mode-wrapper');
-    graphPreviewContainer.classList.toggle('highlight-bounds', highlightBounds && isYearTargeted);
+    graphPreviewContainer.classList.toggle('highlight-bounds', highlightBounds && isYearAssigned);
     dayLabelsCol.innerHTML = '<span></span><span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span>';
     monthLabelsRow.style.display = 'grid';
     renderMonthLabels(activePreviewYear);
@@ -404,7 +670,7 @@ function renderCurrentView(matrix: ContributionLevel[][]) {
     contributionMatrix.style.gridTemplateColumns = 'repeat(53, var(--cell-size))';
 
     for (let c = 0; c < 53; c++) {
-      const isArtworkCol = isYearTargeted && c >= startCol && c < startCol + artWidth;
+      const isArtworkCol = isYearAssigned && c >= startCol && c < startCol + artWidth;
       const artCol = isArtworkCol ? c - startCol : -1;
 
       for (let r = 0; r < 7; r++) {
@@ -412,7 +678,7 @@ function renderCurrentView(matrix: ContributionLevel[][]) {
         let isArtCell = false;
 
         if (isArtworkCol) {
-          level = matrix[r][artCol] || 0;
+          level = displayMatrix[r][artCol] || 0;
           isArtCell = true;
         } else if (showProfileContributions && userProfileCalendar) {
           level = userProfileCalendar[c]?.[r] || 0;
@@ -425,8 +691,8 @@ function renderCurrentView(matrix: ContributionLevel[][]) {
         cell.dataset.col = String(c);
         cell.setAttribute('role', 'gridcell');
 
-        if (isArtCell) {
-          cell.title = `Artwork [Row ${r + 1}, Col ${artCol + 1}]: Level ${level}`;
+        if (isArtCell && canPaintDirectly) {
+          cell.title = `${activeItem.name} [Row ${r + 1}, Col ${artCol + 1}]: Level ${level}`;
           cell.addEventListener('pointerdown', (e) => {
             e.preventDefault();
             matrixStore.handlePointerDown(r, artCol);
@@ -434,6 +700,8 @@ function renderCurrentView(matrix: ContributionLevel[][]) {
           cell.addEventListener('pointerenter', () => {
             matrixStore.handlePointerEnter(r, artCol);
           });
+        } else if (isArtCell && previewOwner) {
+          cell.title = `${previewOwner.name} [Row ${r + 1}, Col ${artCol + 1}]: Level ${level}`;
         } else {
           const bgLevel = userProfileCalendar ? (userProfileCalendar[c]?.[r] || 0) : 0;
           cell.title = bgLevel > 0 ? `Profile Activity: Level ${bgLevel}` : `Profile Background [Col ${c + 1}]`;
@@ -443,10 +711,10 @@ function renderCurrentView(matrix: ContributionLevel[][]) {
       }
     }
 
-    if (isYearTargeted) {
-      graphDimensionsDisplay.textContent = `Pattern: 7 × ${artWidth} (Centered in ${activePreviewYear} Profile)`;
+    if (previewOwner) {
+      graphDimensionsDisplay.textContent = `${previewOwner.name}: 7 × ${artWidth} (${activePreviewYear} Profile)`;
     } else {
-      graphDimensionsDisplay.textContent = `Year ${activePreviewYear} not selected in Target Profile Years`;
+      graphDimensionsDisplay.textContent = `Year ${activePreviewYear} — No artwork assigned`;
     }
 
     if (userTotalContributions !== null && showProfileContributions) {
@@ -472,7 +740,7 @@ function renderCurrentView(matrix: ContributionLevel[][]) {
 
     for (let c = 0; c < artWidth; c++) {
       for (let r = 0; r < artHeight; r++) {
-        const level = matrix[r][c];
+        const level = displayMatrix[r][c];
         totalCommits += weightMap[level] || 0;
 
         const cell = document.createElement('div');
@@ -496,9 +764,7 @@ function renderCurrentView(matrix: ContributionLevel[][]) {
       }
     }
 
-    graphDimensionsDisplay.textContent = isYearTargeted
-      ? `Editor Mode (${activePreviewYear}): 7 × ${artWidth} (${7 * artWidth} cells)`
-      : `Editor Mode (${activePreviewYear} — not selected for deploy): 7 × ${artWidth}`;
+    graphDimensionsDisplay.textContent = `Editor (${activeItem.name}): 7 × ${artWidth} (${7 * artWidth} cells)`;
     profileTotalCommits.textContent = `${totalCommits.toLocaleString()} ${commitsLabel}`;
   }
 
@@ -506,15 +772,19 @@ function renderCurrentView(matrix: ContributionLevel[][]) {
 }
 
 matrixStore.subscribe((matrix) => {
-  if (syncAllYears) {
-    for (const yr of selectedTargetYears) {
-      yearPatterns.set(yr, matrix.map((row) => [...row]));
-    }
-  } else if (selectedTargetYears.has(activePreviewYear)) {
-    yearPatterns.set(activePreviewYear, matrix.map((row) => [...row]));
+  if (!isSyncingMatrix) {
+    const item = getActiveArtwork();
+    item.matrix = cloneMatrix(matrix);
+    item.width = matrix[0]?.length || item.width;
+    renderDeployPlan();
   }
   renderCurrentView(matrix);
 });
+
+syncSidebarToActiveArtwork();
+renderArtworkItemsList();
+renderYearSelector();
+renderDeployPlan();
 
 window.addEventListener('pointerup', () => {
   matrixStore.handlePointerUp();
@@ -555,36 +825,46 @@ fileInput.addEventListener('change', () => {
 async function handleFileUpload(file: File) {
   try {
     const img = await loadImageFromFile(file);
-    currentImage = img;
+    const item = getActiveArtwork();
 
-    dropzoneThumb.src = URL.createObjectURL(file);
-    dropzoneFilename.textContent = file.name;
-    dropzoneDims.textContent = `${img.naturalWidth} × ${img.naturalHeight} px (${Math.round(file.size / 1024)} KB)`;
-    dropzoneEmpty.style.display = 'none';
-    dropzoneActive.style.display = 'flex';
+    if (item.imageThumbUrl) {
+      URL.revokeObjectURL(item.imageThumbUrl);
+    }
+
+    item.image = img;
+    item.imageThumbUrl = URL.createObjectURL(file);
+    item.imageFilename = file.name;
+    item.imageDims = `${img.naturalWidth} × ${img.naturalHeight} px (${Math.round(file.size / 1024)} KB)`;
+    item.name = file.name;
 
     const ratio = img.naturalWidth / Math.max(1, img.naturalHeight);
     let targetWidth = Math.round(7 * ratio);
     targetWidth = Math.max(1, Math.min(44, targetWidth));
-
-    widthSlider.setValue(targetWidth);
+    item.width = targetWidth;
 
     const result = processImageToMatrix(img, {
-      mode: currentMode,
-      threshold: currentThreshold,
-      invert: currentInvert,
+      mode: item.mode,
+      threshold: item.threshold,
+      invert: item.invert,
       customWidth: targetWidth
     });
 
-    isUserManualThreshold = false;
-    currentThreshold = result.calculatedThreshold;
-    thresholdSlider.setValue(result.calculatedThreshold);
-
-    if (currentMode === 'auto') {
-      modeControl.setValue(result.detectedMode);
+    item.isUserManualThreshold = false;
+    item.threshold = result.calculatedThreshold;
+    if (item.mode === 'auto') {
+      item.mode = result.detectedMode;
     }
+    item.matrix = cloneMatrix(result.matrix);
 
+    isSyncingMatrix = true;
     matrixStore.setMatrix(result.matrix);
+    isSyncingMatrix = false;
+
+    syncSidebarToActiveArtwork();
+    renderArtworkItemsList();
+    renderYearSelector();
+    renderDeployPlan();
+    renderCurrentView(matrixStore.getMatrix());
   } catch (err: any) {
     alert(`Error loading image: ${err.message || err}`);
   }
@@ -592,12 +872,22 @@ async function handleFileUpload(file: File) {
 
 btnClearImage.addEventListener('click', (e) => {
   e.stopPropagation();
-  currentImage = null;
+  const item = getActiveArtwork();
+  if (item.imageThumbUrl) {
+    URL.revokeObjectURL(item.imageThumbUrl);
+  }
+  item.image = null;
+  item.imageThumbUrl = null;
+  item.imageFilename = null;
+  item.imageDims = null;
+  const idx = artworkItems.indexOf(item) + 1;
+  item.name = `Artwork ${idx}`;
   fileInput.value = '';
-  dropzoneEmpty.style.display = 'block';
-  dropzoneActive.style.display = 'none';
   matrixStore.clear();
-  renderCurrentView(matrixStore.getMatrix());
+  syncSidebarToActiveArtwork();
+  renderArtworkItemsList();
+  renderYearSelector();
+  renderDeployPlan();
 });
 
 btnContributionSettings.addEventListener('click', (e) => {
@@ -744,22 +1034,51 @@ async function checkExistingUserRepo() {
         `Found existing GitStamp art in @${currentUser.login}/${repoName}. Would you like to load it into the editor?`
       );
       if (promptLoad) {
-        if (Array.isArray(existing.config.years) && existing.config.years.length > 0) {
-          selectedTargetYears = new Set(existing.config.years);
-          renderTargetYearsPills();
-          renderYearSelector();
-        }
-        if (existing.config.patterns) {
-          for (const [yStr, cfg] of Object.entries(existing.config.patterns)) {
-            if (Array.isArray(cfg.matrix)) {
-              yearPatterns.set(Number(yStr), cfg.matrix);
+        const loadedItems: ArtworkItem[] = [];
+        artworkCounter = 1;
+
+        if (existing.config.patterns && Object.keys(existing.config.patterns).length > 0) {
+          const groupedByMatrix = new Map<string, { matrix: ContributionLevel[][]; years: number[] }>();
+          const yearsList = Array.isArray(existing.config.years) && existing.config.years.length > 0
+            ? existing.config.years
+            : Object.keys(existing.config.patterns).map(Number);
+
+          for (const yr of yearsList) {
+            const cfg = existing.config.patterns[String(yr)];
+            if (!cfg || !Array.isArray(cfg.matrix)) {
+              continue;
+            }
+            const key = JSON.stringify(cfg.matrix);
+            const entry = groupedByMatrix.get(key);
+            if (entry) {
+              entry.years.push(yr);
+            } else {
+              groupedByMatrix.set(key, { matrix: cfg.matrix, years: [yr] });
             }
           }
+
+          for (const entry of groupedByMatrix.values()) {
+            const item = createArtworkItem(entry.years, undefined, entry.matrix);
+            item.mode = existing.config.mode === 'grayscale' ? 'grayscale' : 'bicolor';
+            loadedItems.push(item);
+          }
+        } else if (existing.config.matrix) {
+          const yearsList = Array.isArray(existing.config.years) && existing.config.years.length > 0
+            ? existing.config.years
+            : [currentYear];
+          const item = createArtworkItem(yearsList, undefined, existing.config.matrix);
+          item.mode = existing.config.mode === 'grayscale' ? 'grayscale' : 'bicolor';
+          loadedItems.push(item);
         }
-        if (existing.config.matrix) {
-          matrixStore.setMatrix(existing.config.matrix);
-          widthSlider.setValue(existing.config.matrix[0].length);
-          invertToggle.setChecked(existing.config.mode === 'bicolor');
+
+        if (loadedItems.length > 0) {
+          for (const old of artworkItems) {
+            if (old.imageThumbUrl) {
+              URL.revokeObjectURL(old.imageThumbUrl);
+            }
+          }
+          artworkItems = loadedItems;
+          await selectArtworkItem(artworkItems[0].id, true);
         }
       }
     } else {
@@ -798,6 +1117,15 @@ btnDeploy.addEventListener('click', async () => {
     return;
   }
 
+  const activeItem = getActiveArtwork();
+  activeItem.matrix = matrixStore.getMatrix();
+
+  const sortedYears = getAllAssignedYears();
+  if (sortedYears.length === 0) {
+    alert('Please assign at least one year to an artwork before deploying.');
+    return;
+  }
+
   const repoName = repoNameInput.value.trim() || 'gitstamp-art';
   const owner = currentUser.login;
 
@@ -819,29 +1147,29 @@ btnDeploy.addEventListener('click', async () => {
 
     setStepStatus(stepFiles, 'running', '2. Committing engine files (art.json, render.mjs, workflow, README)...');
 
-    if (!syncAllYears && selectedTargetYears.has(activePreviewYear)) {
-      yearPatterns.set(activePreviewYear, matrixStore.getMatrix());
-    }
-    const sortedYears = Array.from(selectedTargetYears).sort((a, b) => b - a);
-    const currentCanvasMatrix = matrixStore.getMatrix();
     const patterns: Record<string, { type: 'rolling' | 'calendar'; matrix: ContributionLevel[][] }> = {};
+    let hasGrayscale = false;
 
     for (const yr of sortedYears) {
-      const yrMatrix = syncAllYears
-        ? currentCanvasMatrix
-        : (yearPatterns.get(yr) || currentCanvasMatrix);
+      const yearArtwork = getArtworkForYear(yr);
+      if (!yearArtwork) {
+        continue;
+      }
+      if (yearArtwork.mode === 'grayscale') {
+        hasGrayscale = true;
+      }
       patterns[String(yr)] = {
         type: yr === currentYear ? 'rolling' : 'calendar',
-        matrix: yrMatrix
+        matrix: yearArtwork.matrix
       };
     }
 
-    const primaryMatrix = patterns[String(sortedYears[0])]?.matrix || currentCanvasMatrix;
+    const primaryMatrix = patterns[String(sortedYears[0])]?.matrix || activeItem.matrix;
 
     const artData = {
       authorName: currentUser.login,
       authorEmail: currentUser.noreply_email,
-      mode: currentMode === 'grayscale' ? 'grayscale' : 'bicolor',
+      mode: hasGrayscale ? 'grayscale' : 'bicolor',
       matrix: primaryMatrix,
       years: sortedYears,
       patterns,
@@ -922,7 +1250,7 @@ btnDeploy.addEventListener('click', async () => {
       setStepStatus(stepDispatch, 'error', `3. Workflow dispatch failed: ${err.message}`);
     }
   } finally {
-    btnDeploy.disabled = false;
+    btnDeploy.disabled = getAllAssignedYears().length === 0;
     btnDeploy.textContent = 'Deploy to My GitHub Profile';
   }
 });

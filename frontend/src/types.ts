@@ -50,3 +50,19 @@ export interface UserContributionData {
   totalContributions: number;
   matrix: ContributionLevel[][];
 }
+
+export interface ArtworkItem {
+  id: string;
+  name: string;
+  image: HTMLImageElement | null;
+  imageThumbUrl: string | null;
+  imageFilename: string | null;
+  imageDims: string | null;
+  mode: ProcessingMode;
+  threshold: number;
+  isUserManualThreshold: boolean;
+  invert: boolean;
+  width: number;
+  matrix: ContributionLevel[][];
+  years: Set<number>;
+}
