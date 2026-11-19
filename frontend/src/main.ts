@@ -45,6 +45,7 @@ let highlightBounds: boolean = true;
 let userProfileCalendar: ContributionLevel[][] | null = null;
 let userTotalContributions: number | null = null;
 let showProfileContributions: boolean = true;
+let flattenBackground: boolean = true;
 let isSyncingMatrix: boolean = false;
 
 const matrixStore = new MatrixStore(24);
@@ -67,6 +68,7 @@ const btnContributionSettings = document.getElementById('btn-contribution-settin
 const settingsDropdownMenu = document.getElementById('settings-dropdown-menu') as HTMLElement;
 const settingHighlightBounds = document.getElementById('setting-highlight-bounds') as HTMLInputElement;
 const settingProfileContributions = document.getElementById('setting-profile-contributions') as HTMLInputElement;
+const settingFlattenBackground = document.getElementById('setting-flatten-background') as HTMLInputElement;
 const settingBtnResetArt = document.getElementById('setting-btn-reset-art') as HTMLButtonElement;
 const targetRepoLink = document.getElementById('target-repo-link') as HTMLAnchorElement;
 const dayLabelsCol = document.getElementById('day-labels-col') as HTMLElement;
@@ -94,7 +96,7 @@ const stepFiles = document.getElementById('step-files') as HTMLElement;
 const stepDispatch = document.getElementById('step-dispatch') as HTMLElement;
 
 const currentYear = new Date().getFullYear();
-const availableYears: number[] = [
+let availableYears: number[] = [
   currentYear,
   currentYear - 1,
   currentYear - 2,
@@ -139,6 +141,39 @@ function createArtworkItem(
 
 let artworkItems: ArtworkItem[] = [createArtworkItem([currentYear])];
 let activeArtworkId: string = artworkItems[0].id;
+
+function setAvailableYears(userYears?: number[]) {
+  const yearsSet = new Set<number>();
+  yearsSet.add(currentYear);
+
+  if (Array.isArray(userYears) && userYears.length > 0) {
+    for (const yr of userYears) {
+      if (Number.isFinite(yr)) {
+        yearsSet.add(yr);
+      }
+    }
+  } else {
+    for (let i = 1; i <= 4; i++) {
+      yearsSet.add(currentYear - i);
+    }
+  }
+
+  if (typeof artworkItems !== 'undefined') {
+    for (const item of artworkItems) {
+      for (const yr of item.years) {
+        yearsSet.add(yr);
+      }
+    }
+  }
+
+  availableYears = Array.from(yearsSet).sort((a, b) => b - a);
+  if (!availableYears.includes(activePreviewYear)) {
+    activePreviewYear = availableYears[0];
+  }
+  renderArtworkItemsList();
+  renderYearSelector();
+  renderDeployPlan();
+}
 
 function hasArtworkContent(item: ArtworkItem): boolean {
   if (item.image) {
@@ -733,9 +768,12 @@ function renderCurrentView(matrix: ContributionLevel[][]) {
       const artCol = isArtworkCol ? c - startCol : -1;
 
       for (let r = 0; r < 7; r++) {
-        const bgLevel: ContributionLevel = (showProfileContributions && userProfileCalendar)
+        const rawBgLevel: ContributionLevel = (showProfileContributions && userProfileCalendar)
           ? (userProfileCalendar[c]?.[r] || 0)
           : 0;
+        const bgLevel: ContributionLevel = (flattenBackground && rawBgLevel > 0)
+          ? 1
+          : rawBgLevel;
         const artLevel: ContributionLevel = isArtworkCol
           ? (displayMatrix[r][artCol] || 0)
           : 0;
@@ -750,8 +788,8 @@ function renderCurrentView(matrix: ContributionLevel[][]) {
         cell.setAttribute('role', 'gridcell');
 
         if (isArtCell && canPaintDirectly) {
-          cell.title = bgLevel > 0
-            ? `${activeItem.name} [Row ${r + 1}, Col ${artCol + 1}]: Art L${artLevel} · Profile L${bgLevel}`
+          cell.title = rawBgLevel > 0
+            ? `${activeItem.name} [Row ${r + 1}, Col ${artCol + 1}]: Art L${artLevel} · Profile L${rawBgLevel}`
             : `${activeItem.name} [Row ${r + 1}, Col ${artCol + 1}]: Level ${artLevel}`;
           cell.addEventListener('pointerdown', (e) => {
             e.preventDefault();
@@ -761,11 +799,11 @@ function renderCurrentView(matrix: ContributionLevel[][]) {
             matrixStore.handlePointerEnter(r, artCol);
           });
         } else if (isArtCell && previewOwner) {
-          cell.title = bgLevel > 0
-            ? `${previewOwner.name} [Row ${r + 1}, Col ${artCol + 1}]: Art L${artLevel} · Profile L${bgLevel}`
+          cell.title = rawBgLevel > 0
+            ? `${previewOwner.name} [Row ${r + 1}, Col ${artCol + 1}]: Art L${artLevel} · Profile L${rawBgLevel}`
             : `${previewOwner.name} [Row ${r + 1}, Col ${artCol + 1}]: Level ${artLevel}`;
         } else {
-          cell.title = bgLevel > 0 ? `Profile Activity: Level ${bgLevel}` : `Profile Background [Col ${c + 1}]`;
+          cell.title = rawBgLevel > 0 ? `Profile Activity: Level ${rawBgLevel}` : `Profile Background [Col ${c + 1}]`;
         }
 
         contributionMatrix.appendChild(cell);
@@ -952,6 +990,13 @@ if (settingProfileContributions) {
   });
 }
 
+if (settingFlattenBackground) {
+  settingFlattenBackground.addEventListener('change', () => {
+    flattenBackground = settingFlattenBackground.checked;
+    renderCurrentView(matrixStore.getMatrix());
+  });
+}
+
 settingBtnResetArt.addEventListener('click', () => {
   matrixStore.clear();
   settingsDropdownMenu.style.display = 'none';
@@ -994,6 +1039,9 @@ async function loadUserContributions(year: number = activePreviewYear) {
   try {
     const data = await fetchUserContributions(token, year === currentYear ? undefined : year);
     if (data) {
+      if (Array.isArray(data.years) && data.years.length > 0) {
+        setAvailableYears(data.years);
+      }
       yearContributionsCache.set(year, data);
       if (activePreviewYear === year) {
         userProfileCalendar = data.matrix;
@@ -1021,6 +1069,7 @@ function updateAuthDisplay() {
       userProfileCalendar = null;
       userTotalContributions = null;
       yearContributionsCache.clear();
+      setAvailableYears();
       updateAuthDisplay();
       checkExistingUserRepo();
       updateTargetRepoLink();
@@ -1105,6 +1154,13 @@ async function checkExistingUserRepo() {
           const item = createArtworkItem(yearsList, undefined, existing.config.matrix);
           item.mode = existing.config.mode === 'grayscale' ? 'grayscale' : 'bicolor';
           loadedItems.push(item);
+        }
+
+        if (existing.config.flattenBackground !== undefined) {
+          flattenBackground = existing.config.flattenBackground;
+          if (settingFlattenBackground) {
+            settingFlattenBackground.checked = flattenBackground;
+          }
         }
 
         if (loadedItems.length > 0) {
@@ -1209,6 +1265,7 @@ btnDeploy.addEventListener('click', async () => {
       matrix: primaryMatrix,
       years: sortedYears,
       patterns,
+      flattenBackground,
       updatedAt: new Date().toISOString()
     };
 
@@ -1306,6 +1363,16 @@ async function loadServerConfig() {
   } catch {}
 }
 
+window.addEventListener('gitstamp:auth-expired', () => {
+  currentUser = null;
+  userProfileCalendar = null;
+  userTotalContributions = null;
+  yearContributionsCache.clear();
+  setAvailableYears();
+  updateAuthDisplay();
+  renderCurrentView(matrixStore.getMatrix());
+});
+
 async function init() {
   await loadServerConfig();
 
@@ -1328,6 +1395,16 @@ async function init() {
     });
     if (token) {
       currentUser = await fetchUserProfile(token);
+    } else {
+      const storedToken = getStoredToken();
+      if (storedToken) {
+        try {
+          currentUser = await fetchUserProfile(storedToken);
+        } catch {
+          clearAuth();
+          currentUser = null;
+        }
+      }
     }
   } catch (err: any) {
     console.error('PKCE callback error:', err);

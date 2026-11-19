@@ -715,6 +715,7 @@ input:checked + .slider-knob:before {
 .year-selector-bar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.25rem;
   background-color: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--gh-preview-border);
@@ -974,11 +975,13 @@ input:checked + .slider-knob:before {
 .artwork-card-years {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.25rem;
 }
 
 .artwork-year-pill {
-  flex: 1;
+  flex: 1 1 calc(20% - 0.25rem);
+  min-width: 38px;
   text-align: center;
   padding: 0.2rem 0.25rem;
   font-size: 0.7rem;

@@ -16,6 +16,7 @@ export interface ArtConfig {
   matrix: ContributionLevel[][];
   years?: number[];
   patterns?: Record<string, YearPatternConfig>;
+  flattenBackground?: boolean;
   updatedAt: string;
 }
 
@@ -49,6 +50,7 @@ export interface DeploymentStep {
 export interface UserContributionData {
   totalContributions: number;
   matrix: ContributionLevel[][];
+  years?: number[];
 }
 
 export interface ArtworkItem {

@@ -1,4 +1,5 @@
 import { ArtConfig, RepoDetails, ContributionLevel, UserContributionData } from '../types';
+import { clearAuth } from './auth-pkce';
 
 export function toBase64Utf8(str: string): string {
   const bytes = new TextEncoder().encode(str);
@@ -35,6 +36,10 @@ export async function checkRepoExists(
   }
 
   if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      clearAuth();
+      window.dispatchEvent(new CustomEvent('gitstamp:auth-expired'));
+    }
     throw new Error(`Failed to check repository: ${res.statusText}`);
   }
 
@@ -67,6 +72,10 @@ export async function createPublicRepo(
   });
 
   if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      clearAuth();
+      window.dispatchEvent(new CustomEvent('gitstamp:auth-expired'));
+    }
     const errorData = await res.json().catch(() => ({}));
     throw new Error(errorData.message || `Failed to create repository: ${res.statusText}`);
   }
@@ -98,6 +107,10 @@ export async function getFile(
   }
 
   if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      clearAuth();
+      window.dispatchEvent(new CustomEvent('gitstamp:auth-expired'));
+    }
     throw new Error(`Failed to fetch file ${path}: ${res.statusText}`);
   }
 
@@ -137,6 +150,10 @@ export async function putFile(
   });
 
   if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      clearAuth();
+      window.dispatchEvent(new CustomEvent('gitstamp:auth-expired'));
+    }
     const errorData = await res.json().catch(() => ({}));
     throw new Error(
       errorData.message || `Failed to save ${path}: ${res.statusText}`
@@ -227,6 +244,7 @@ export async function fetchUserContributions(
       query($from: DateTime!, $to: DateTime!) {
         viewer {
           contributionsCollection(from: $from, to: $to) {
+            contributionYears
             contributionCalendar {
               totalContributions
               weeks {
@@ -250,6 +268,7 @@ export async function fetchUserContributions(
       query {
         viewer {
           contributionsCollection {
+            contributionYears
             contributionCalendar {
               totalContributions
               weeks {
@@ -278,14 +297,24 @@ export async function fetchUserContributions(
     });
 
     if (!res.ok) {
+      if (res.status === 401 || res.status === 403) {
+        clearAuth();
+        window.dispatchEvent(new CustomEvent('gitstamp:auth-expired'));
+      }
       return null;
     }
 
     const data = await res.json();
-    const calendar = data?.data?.viewer?.contributionsCollection?.contributionCalendar;
+    const collection = data?.data?.viewer?.contributionsCollection;
+    const calendar = collection?.contributionCalendar;
     if (!calendar || !calendar.weeks) {
       return null;
     }
+
+    const rawYears = collection?.contributionYears;
+    const years: number[] = Array.isArray(rawYears)
+      ? rawYears.map(Number).filter((n) => Number.isFinite(n))
+      : [];
 
     const levelMap: Record<string, ContributionLevel> = {
       NONE: 0,
@@ -314,7 +343,8 @@ export async function fetchUserContributions(
 
     return {
       totalContributions: calendar.totalContributions || 0,
-      matrix
+      matrix,
+      years
     };
   } catch {
     return null;

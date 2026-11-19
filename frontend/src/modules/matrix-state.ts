@@ -11,6 +11,7 @@ export class MatrixStore {
   private listeners: Set<MatrixListener> = new Set();
   private isPointerDown: boolean = false;
   private activeBrush: ContributionLevel = 4;
+  private currentStrokeBrush: ContributionLevel = 4;
 
   constructor(initialWidth: number = 24) {
     this.width = Math.max(1, Math.min(44, initialWidth));
@@ -151,13 +152,24 @@ export class MatrixStore {
   }
 
   public handlePointerDown(row: number, col: number): void {
+    if (row < 0 || row >= 7 || col < 0 || col >= this.width) {
+      return;
+    }
     this.isPointerDown = true;
-    this.setCell(row, col, this.activeBrush);
+    const current = this.matrix[row][col];
+    if (this.activeBrush === 0) {
+      this.currentStrokeBrush = 0;
+    } else if (current === this.activeBrush) {
+      this.currentStrokeBrush = 0;
+    } else {
+      this.currentStrokeBrush = this.activeBrush;
+    }
+    this.setCell(row, col, this.currentStrokeBrush);
   }
 
   public handlePointerEnter(row: number, col: number): void {
     if (this.isPointerDown) {
-      this.setCell(row, col, this.activeBrush);
+      this.setCell(row, col, this.currentStrokeBrush);
     }
   }
 
