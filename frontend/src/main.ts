@@ -129,7 +129,7 @@ function createArtworkItem(
     imageThumbUrl: null,
     imageFilename: null,
     imageDims: null,
-    mode: 'bicolor',
+    mode: 'auto',
     threshold: 128,
     isUserManualThreshold: false,
     invert: false,
@@ -211,11 +211,11 @@ function getAllAssignedYears(): number[] {
 const modeControl = createSegmentedControl<ProcessingMode>({
   container: modeContainer,
   options: [
+    { label: 'Auto', value: 'auto' },
     { label: 'Bicolor', value: 'bicolor' },
-    { label: '5-Level', value: 'grayscale' },
-    { label: 'Auto', value: 'auto' }
+    { label: '5-Level', value: 'grayscale' }
   ],
-  initialValue: 'bicolor',
+  initialValue: 'auto',
   onChange: (mode) => {
     const item = getActiveArtwork();
     item.mode = mode;
@@ -939,13 +939,22 @@ async function handleFileUpload(file: File, targetId: string = activeArtworkId) 
       mode: targetItem.mode,
       threshold: undefined,
       invert: targetItem.invert,
-      customWidth: targetWidth
+      customWidth: targetWidth,
+      autoDetectInvert: true
     });
 
     targetItem.isUserManualThreshold = false;
     targetItem.threshold = result.calculatedThreshold;
+    thresholdSlider.setValue(result.calculatedThreshold);
+
+    if (result.suggestedInvert !== undefined) {
+      targetItem.invert = result.suggestedInvert;
+      invertToggle.setChecked(result.suggestedInvert);
+    }
+
     if (targetItem.mode === 'auto') {
       targetItem.mode = result.detectedMode;
+      modeControl.setValue(result.detectedMode);
     }
     targetItem.matrix = cloneMatrix(result.matrix);
 
