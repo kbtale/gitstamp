@@ -152,6 +152,10 @@ export async function fetchUserProfile(token: string): Promise<UserProfile> {
   });
 
   if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      clearAuth();
+      window.dispatchEvent(new CustomEvent('gitstamp:auth-expired'));
+    }
     throw new Error(`Failed to fetch user profile: ${response.statusText}`);
   }
 

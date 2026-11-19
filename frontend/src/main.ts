@@ -96,7 +96,7 @@ const stepFiles = document.getElementById('step-files') as HTMLElement;
 const stepDispatch = document.getElementById('step-dispatch') as HTMLElement;
 
 const currentYear = new Date().getFullYear();
-const availableYears: number[] = [
+let availableYears: number[] = [
   currentYear,
   currentYear - 1,
   currentYear - 2,
@@ -141,6 +141,39 @@ function createArtworkItem(
 
 let artworkItems: ArtworkItem[] = [createArtworkItem([currentYear])];
 let activeArtworkId: string = artworkItems[0].id;
+
+function setAvailableYears(userYears?: number[]) {
+  const yearsSet = new Set<number>();
+  yearsSet.add(currentYear);
+
+  if (Array.isArray(userYears) && userYears.length > 0) {
+    for (const yr of userYears) {
+      if (Number.isFinite(yr)) {
+        yearsSet.add(yr);
+      }
+    }
+  } else {
+    for (let i = 1; i <= 4; i++) {
+      yearsSet.add(currentYear - i);
+    }
+  }
+
+  if (typeof artworkItems !== 'undefined') {
+    for (const item of artworkItems) {
+      for (const yr of item.years) {
+        yearsSet.add(yr);
+      }
+    }
+  }
+
+  availableYears = Array.from(yearsSet).sort((a, b) => b - a);
+  if (!availableYears.includes(activePreviewYear)) {
+    activePreviewYear = availableYears[0];
+  }
+  renderArtworkItemsList();
+  renderYearSelector();
+  renderDeployPlan();
+}
 
 function hasArtworkContent(item: ArtworkItem): boolean {
   if (item.image) {
@@ -1006,6 +1039,9 @@ async function loadUserContributions(year: number = activePreviewYear) {
   try {
     const data = await fetchUserContributions(token, year === currentYear ? undefined : year);
     if (data) {
+      if (Array.isArray(data.years) && data.years.length > 0) {
+        setAvailableYears(data.years);
+      }
       yearContributionsCache.set(year, data);
       if (activePreviewYear === year) {
         userProfileCalendar = data.matrix;
@@ -1033,6 +1069,7 @@ function updateAuthDisplay() {
       userProfileCalendar = null;
       userTotalContributions = null;
       yearContributionsCache.clear();
+      setAvailableYears();
       updateAuthDisplay();
       checkExistingUserRepo();
       updateTargetRepoLink();
@@ -1326,6 +1363,16 @@ async function loadServerConfig() {
   } catch {}
 }
 
+window.addEventListener('gitstamp:auth-expired', () => {
+  currentUser = null;
+  userProfileCalendar = null;
+  userTotalContributions = null;
+  yearContributionsCache.clear();
+  setAvailableYears();
+  updateAuthDisplay();
+  renderCurrentView(matrixStore.getMatrix());
+});
+
 async function init() {
   await loadServerConfig();
 
@@ -1348,6 +1395,16 @@ async function init() {
     });
     if (token) {
       currentUser = await fetchUserProfile(token);
+    } else {
+      const storedToken = getStoredToken();
+      if (storedToken) {
+        try {
+          currentUser = await fetchUserProfile(storedToken);
+        } catch {
+          clearAuth();
+          currentUser = null;
+        }
+      }
     }
   } catch (err: any) {
     console.error('PKCE callback error:', err);

@@ -50,6 +50,7 @@ export interface DeploymentStep {
 export interface UserContributionData {
   totalContributions: number;
   matrix: ContributionLevel[][];
+  years?: number[];
 }
 
 export interface ArtworkItem {
