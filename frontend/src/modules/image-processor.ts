@@ -49,67 +49,127 @@ export function detectTransparency(imageData: ImageData): boolean {
   return transparentPixels > totalPixels * 0.02;
 }
 
+interface PolarityAnalysis {
+  perimeterIsDark: boolean;
+  hasAlphaBackground: boolean;
+  hasUniformBorder: boolean;
+  bgRgb: [number, number, number];
+}
+
 function analyzeImagePolarity(
   data: Uint8ClampedArray,
   w: number,
   h: number
-): { perimeterIsDark: boolean; hasAlphaBackground: boolean } {
+): PolarityAnalysis {
   let transparentPerimeter = 0;
   const perimeterLuminances: number[] = [];
+  const perimeterR: number[] = [];
+  const perimeterG: number[] = [];
+  const perimeterB: number[] = [];
+
+  function samplePixel(idx: number) {
+    if (data[idx + 3] < 128) {
+      transparentPerimeter++;
+    } else {
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+      perimeterR.push(r);
+      perimeterG.push(g);
+      perimeterB.push(b);
+      perimeterLuminances.push(Math.round(0.299 * r + 0.587 * g + 0.114 * b));
+    }
+  }
 
   for (let x = 0; x < w; x++) {
-    const topIdx = x * 4;
-    const botIdx = ((h - 1) * w + x) * 4;
-
-    if (data[topIdx + 3] < 128) {
-      transparentPerimeter++;
-    } else {
-      perimeterLuminances.push(
-        Math.round(0.299 * data[topIdx] + 0.587 * data[topIdx + 1] + 0.114 * data[topIdx + 2])
-      );
-    }
-
-    if (data[botIdx + 3] < 128) {
-      transparentPerimeter++;
-    } else {
-      perimeterLuminances.push(
-        Math.round(0.299 * data[botIdx] + 0.587 * data[botIdx + 1] + 0.114 * data[botIdx + 2])
-      );
+    samplePixel(x * 4);
+    if (h > 1) {
+      samplePixel(((h - 1) * w + x) * 4);
     }
   }
 
   for (let y = 1; y < h - 1; y++) {
-    const leftIdx = (y * w) * 4;
-    const rightIdx = (y * w + (w - 1)) * 4;
-
-    if (data[leftIdx + 3] < 128) {
-      transparentPerimeter++;
-    } else {
-      perimeterLuminances.push(
-        Math.round(0.299 * data[leftIdx] + 0.587 * data[leftIdx + 1] + 0.114 * data[leftIdx + 2])
-      );
-    }
-
-    if (data[rightIdx + 3] < 128) {
-      transparentPerimeter++;
-    } else {
-      perimeterLuminances.push(
-        Math.round(0.299 * data[rightIdx] + 0.587 * data[rightIdx + 1] + 0.114 * data[rightIdx + 2])
-      );
+    samplePixel((y * w) * 4);
+    if (w > 1) {
+      samplePixel((y * w + (w - 1)) * 4);
     }
   }
 
-  const totalPerimeter = (w + h - 2) * 2;
+  const totalPerimeter = Math.max(1, transparentPerimeter + perimeterLuminances.length);
   const hasAlphaBackground = transparentPerimeter > totalPerimeter * 0.35;
 
   let perimeterIsDark = false;
+  let hasUniformBorder = false;
+  let bgRgb: [number, number, number] = [255, 255, 255];
+
   if (!hasAlphaBackground && perimeterLuminances.length > 0) {
-    perimeterLuminances.sort((a, b) => a - b);
-    const medianLum = perimeterLuminances[Math.floor(perimeterLuminances.length / 2)];
+    const sortedLums = [...perimeterLuminances].sort((a, b) => a - b);
+    const medianLum = sortedLums[Math.floor(sortedLums.length / 2)];
     perimeterIsDark = medianLum < 120;
+
+    const sortedR = [...perimeterR].sort((a, b) => a - b);
+    const sortedG = [...perimeterG].sort((a, b) => a - b);
+    const sortedB = [...perimeterB].sort((a, b) => a - b);
+    const mid = Math.floor(sortedR.length / 2);
+    bgRgb = [sortedR[mid], sortedG[mid], sortedB[mid]];
+
+    let matchingCount = 0;
+    for (let i = 0; i < perimeterR.length; i++) {
+      const dist = Math.abs(perimeterR[i] - bgRgb[0]) + Math.abs(perimeterG[i] - bgRgb[1]) + Math.abs(perimeterB[i] - bgRgb[2]);
+      if (dist <= 36) {
+        matchingCount++;
+      }
+    }
+    hasUniformBorder = matchingCount >= perimeterR.length * 0.80;
   }
 
-  return { perimeterIsDark, hasAlphaBackground };
+  return { perimeterIsDark, hasAlphaBackground, hasUniformBorder, bgRgb };
+}
+
+function detectContentBounds(
+  data: Uint8ClampedArray,
+  w: number,
+  h: number,
+  hasAlphaBackground: boolean,
+  hasUniformBorder: boolean,
+  bgRgb: [number, number, number]
+): { minX: number; minY: number; maxX: number; maxY: number } {
+  if (!hasAlphaBackground && !hasUniformBorder) {
+    return { minX: 0, minY: 0, maxX: w - 1, maxY: h - 1 };
+  }
+
+  let minX = w;
+  let minY = h;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const idx = (y * w + x) * 4;
+      const a = data[idx + 3];
+      let isContent = false;
+
+      if (hasAlphaBackground) {
+        isContent = a >= 24;
+      } else if (a >= 128) {
+        const dist = Math.abs(data[idx] - bgRgb[0]) + Math.abs(data[idx + 1] - bgRgb[1]) + Math.abs(data[idx + 2] - bgRgb[2]);
+        isContent = dist > 36;
+      }
+
+      if (isContent) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  if (maxX < minX || maxY < minY || (maxX - minX + 1) < 2 || (maxY - minY + 1) < 2) {
+    return { minX: 0, minY: 0, maxX: w - 1, maxY: h - 1 };
+  }
+
+  return { minX, minY, maxX, maxY };
 }
 
 export function processImageToMatrix(
@@ -118,14 +178,7 @@ export function processImageToMatrix(
 ): ProcessedImageResult {
   const originalWidth = img.naturalWidth || img.width;
   const originalHeight = img.naturalHeight || img.height;
-
   const height = 7;
-  let width: number = options.customWidth || 0;
-  if (!width) {
-    const ratio = originalWidth / Math.max(1, originalHeight);
-    width = Math.round(height * ratio);
-    width = Math.max(1, Math.min(44, width));
-  }
 
   const maxAnalysisDim = 256;
   let analysisW = originalWidth;
@@ -156,7 +209,29 @@ export function processImageToMatrix(
   const analysisData = analysisImageData.data;
 
   const hasTransparency = detectTransparency(analysisImageData);
-  const { perimeterIsDark, hasAlphaBackground } = analyzeImagePolarity(analysisData, analysisW, analysisH);
+  const { perimeterIsDark, hasAlphaBackground, hasUniformBorder, bgRgb } = analyzeImagePolarity(
+    analysisData,
+    analysisW,
+    analysisH
+  );
+
+  const bounds = detectContentBounds(
+    analysisData,
+    analysisW,
+    analysisH,
+    hasAlphaBackground,
+    hasUniformBorder,
+    bgRgb
+  );
+  const cropW = bounds.maxX - bounds.minX + 1;
+  const cropH = bounds.maxY - bounds.minY + 1;
+
+  let width: number = options.customWidth || 0;
+  if (!width) {
+    const ratio = cropW / Math.max(1, cropH);
+    width = Math.round(height * ratio);
+    width = Math.max(1, Math.min(44, width));
+  }
 
   const suggestedInvert = (!hasTransparency && !hasAlphaBackground && perimeterIsDark);
   const effectiveInvert = options.autoDetectInvert
@@ -197,12 +272,16 @@ export function processImageToMatrix(
   const foregroundIsDark = !effectiveInvert;
 
   for (let row = 0; row < 7; row++) {
-    const y0 = Math.floor((row * analysisH) / 7);
-    const y1 = Math.max(y0 + 1, Math.ceil(((row + 1) * analysisH) / 7));
+    const relY0 = Math.floor((row * cropH) / 7);
+    const relY1 = Math.max(relY0 + 1, Math.ceil(((row + 1) * cropH) / 7));
+    const y0 = bounds.minY + relY0;
+    const y1 = Math.min(bounds.maxY + 1, bounds.minY + relY1);
 
     for (let col = 0; col < width; col++) {
-      const x0 = Math.floor((col * analysisW) / width);
-      const x1 = Math.max(x0 + 1, Math.ceil(((col + 1) * analysisW) / width));
+      const relX0 = Math.floor((col * cropW) / width);
+      const relX1 = Math.max(relX0 + 1, Math.ceil(((col + 1) * cropW) / width));
+      const x0 = bounds.minX + relX0;
+      const x1 = Math.min(bounds.maxX + 1, bounds.minX + relX1);
 
       let opaqueSum = 0;
       let alphaSum = 0;
@@ -210,8 +289,8 @@ export function processImageToMatrix(
       const sampleLums: number[] = [];
       const sampleAlphas: number[] = [];
 
-      for (let y = y0; y < y1 && y < analysisH; y++) {
-        for (let x = x0; x < x1 && x < analysisW; x++) {
+      for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) {
           const idx = (y * analysisW + x) * 4;
           const a = analysisData[idx + 3];
           alphaSum += a;
