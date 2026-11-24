@@ -378,11 +378,14 @@ export function processImageToMatrix(
   const cropW = bounds.maxX - bounds.minX + 1;
   const cropH = bounds.maxY - bounds.minY + 1;
 
+  const trimmedNaturalW = (cropW / Math.max(1, analysisW)) * originalWidth;
+  const trimmedNaturalH = (cropH / Math.max(1, analysisH)) * originalHeight;
+
   let width: number = options.customWidth || 0;
   if (!width) {
-    const ratio = cropW / Math.max(1, cropH);
+    const ratio = trimmedNaturalW / Math.max(1, trimmedNaturalH);
     width = Math.round(height * ratio);
-    width = Math.max(1, Math.min(44, width));
+    width = Math.max(1, Math.min(53, width));
   }
 
   const lumHistogram = computeLuminanceHistogram(analysisData);
@@ -397,6 +400,41 @@ export function processImageToMatrix(
     }
   }
   const lumRange = Math.max(0, lumMax - lumMin);
+
+  const interiorOpaqueLums: number[] = [];
+  const interiorRimLums: number[] = [];
+  for (let y = bounds.minY; y <= bounds.maxY; y++) {
+    for (let x = bounds.minX; x <= bounds.maxX; x++) {
+      const idx = (y * analysisW + x) * 4;
+      if (analysisData[idx + 3] >= 128) {
+        const l = Math.round(0.299 * analysisData[idx] + 0.587 * analysisData[idx + 1] + 0.114 * analysisData[idx + 2]);
+        interiorOpaqueLums.push(l);
+        if (
+          y <= bounds.minY + 1 ||
+          y >= bounds.maxY - 1 ||
+          x <= bounds.minX + 1 ||
+          x >= bounds.maxX - 1
+        ) {
+          interiorRimLums.push(l);
+        }
+      }
+    }
+  }
+
+  let opaqueInteriorSpan = lumRange;
+  let interiorRimIsDark = perimeterIsDark;
+  if (interiorOpaqueLums.length > 10) {
+    const sortedInterior = [...interiorOpaqueLums].sort((a, b) => a - b);
+    const ip05 = sortedInterior[Math.floor(sortedInterior.length * 0.05)];
+    const ip95 = sortedInterior[Math.min(sortedInterior.length - 1, Math.floor(sortedInterior.length * 0.95))];
+    opaqueInteriorSpan = ip95 - ip05;
+  }
+  if (hasAlphaBackground && interiorRimLums.length > 0) {
+    interiorRimLums.sort((a, b) => a - b);
+    interiorRimIsDark = interiorRimLums[Math.floor(interiorRimLums.length / 2)] < 120;
+  }
+
+  const isSolidAlphaSilhouette = hasAlphaBackground && (opaqueInteriorSpan < 55 || lumOtsu.separability < 0.35);
 
   let useColorDistance = false;
   let otsu = lumOtsu;
@@ -413,7 +451,9 @@ export function processImageToMatrix(
     }
   }
 
-  const suggestedInvert = (!useColorDistance && !hasTransparency && !hasAlphaBackground && perimeterIsDark);
+  const suggestedInvert = isSolidAlphaSilhouette
+    ? false
+    : (!useColorDistance && (hasAlphaBackground ? interiorRimIsDark : perimeterIsDark));
   const effectiveInvert = options.autoDetectInvert
     ? suggestedInvert
     : (options.invert ?? false);
@@ -487,7 +527,6 @@ export function processImageToMatrix(
       let alphaSum = 0;
       let pixelCount = 0;
       const sampleLums: number[] = [];
-      const sampleAlphas: number[] = [];
 
       for (let y = y0; y < y1; y++) {
         for (let x = x0; x < x1; x++) {
@@ -495,7 +534,6 @@ export function processImageToMatrix(
           const a = analysisData[idx + 3];
           alphaSum += a;
           pixelCount++;
-          sampleAlphas.push(a);
 
           if (a >= 128) {
             const l = useColorDistance
@@ -513,30 +551,17 @@ export function processImageToMatrix(
 
       const avgAlpha = pixelCount > 0 ? alphaSum / pixelCount : 0;
       cellAlphas[row][col] = avgAlpha;
-
-      if (sampleAlphas.length === 0) {
-        cellEffectiveAlphas[row][col] = 0;
-      } else {
-        sampleAlphas.sort((a, b) => a - b);
-        const alphaQ85 = sampleAlphas[Math.min(sampleAlphas.length - 1, Math.floor(sampleAlphas.length * 0.85))];
-        cellEffectiveAlphas[row][col] = Math.round(0.45 * avgAlpha + 0.55 * alphaQ85);
-      }
+      cellEffectiveAlphas[row][col] = Math.round(avgAlpha);
 
       if (sampleLums.length === 0) {
         cellLuminances[row][col] = foregroundIsDark ? 255 : 0;
       } else {
-        const mean = opaqueSum / sampleLums.length;
-        sampleLums.sort((a, b) => a - b);
-        const pIndex = foregroundIsDark
-          ? Math.floor(sampleLums.length * 0.15)
-          : Math.min(sampleLums.length - 1, Math.floor(sampleLums.length * 0.85));
-        const pVal = sampleLums[pIndex];
-        cellLuminances[row][col] = Math.round(0.4 * mean + 0.6 * pVal);
+        cellLuminances[row][col] = Math.round(opaqueSum / sampleLums.length);
       }
     }
   }
 
-  const useAlphaMask = hasAlphaBackground && activeMode === 'bicolor';
+  const useAlphaMask = isSolidAlphaSilhouette && activeMode === 'bicolor';
   let activeThreshold = options.threshold !== undefined
     ? options.threshold
     : (useAlphaMask ? 128 : otsu.threshold);
@@ -557,7 +582,7 @@ export function processImageToMatrix(
           }
           continue;
         }
-        if (cellEffectiveAlphas[r][c] < 64) {
+        if (cellEffectiveAlphas[r][c] < 128) {
           if (effectiveInvert) {
             activeCount++;
           }
@@ -573,13 +598,13 @@ export function processImageToMatrix(
     }
 
     const density = totalCells > 0 ? activeCount / totalCells : 0;
-    if (sampleValues.length > 0 && (density < 0.12 || density > 0.72)) {
+    if (sampleValues.length > 0 && (density < 0.05 || density > 0.90)) {
       sampleValues.sort((a, b) => a - b);
       const minVal = sampleValues[0];
       const maxVal = sampleValues[sampleValues.length - 1];
 
       if (maxVal - minVal > 4) {
-        const targetRatio = density < 0.12 ? 0.22 : 0.60;
+        const targetRatio = density < 0.05 ? 0.15 : 0.78;
         if (useAlphaMask) {
           const idx = effectiveInvert
             ? Math.min(sampleValues.length - 1, Math.floor(sampleValues.length * targetRatio))
@@ -603,7 +628,7 @@ export function processImageToMatrix(
   let maxLum = 0;
   for (let r = 0; r < 7; r++) {
     for (let c = 0; c < width; c++) {
-      if (cellEffectiveAlphas[r][c] >= 64) {
+      if (cellEffectiveAlphas[r][c] >= 128) {
         const l = cellLuminances[r][c];
         if (l < minLum) minLum = l;
         if (l > maxLum) maxLum = l;
@@ -612,7 +637,7 @@ export function processImageToMatrix(
   }
 
   const lumSpan = Math.max(1, maxLum - minLum);
-  const useAlphaCoverageShading = hasAlphaBackground && activeMode === 'grayscale' && lumSpan < 24;
+  const useAlphaCoverageShading = isSolidAlphaSilhouette && activeMode === 'grayscale' && lumSpan < 24;
   if (useAlphaCoverageShading && options.threshold === undefined) {
     activeThreshold = 128;
   }
@@ -628,7 +653,7 @@ export function processImageToMatrix(
     const normValues: number[] = [];
     for (let r = 0; r < 7; r++) {
       for (let c = 0; c < width; c++) {
-        if (cellEffectiveAlphas[r][c] >= 64) {
+        if (cellEffectiveAlphas[r][c] >= 128) {
           const t = (cellLuminances[r][c] - minLum) / lumSpan;
           normValues.push(effectiveInvert ? t : (1 - t));
         }
@@ -674,7 +699,7 @@ export function processImageToMatrix(
         continue;
       }
 
-      if (cellEffectiveAlphas[row][col] < 64) {
+      if (cellEffectiveAlphas[row][col] < 128) {
         matrix[row][col] = effectiveInvert ? 4 : 0;
         continue;
       }

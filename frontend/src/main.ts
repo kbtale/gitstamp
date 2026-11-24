@@ -257,8 +257,8 @@ const invertToggle = createToggleSwitch({
 
 const widthSlider = createSlider({
   container: widthContainer,
-  min: 7,
-  max: 44,
+  min: 1,
+  max: 53,
   initialValue: 24,
   label: 'Columns Width',
   onChange: (cols) => {
