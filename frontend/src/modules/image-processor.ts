@@ -192,6 +192,7 @@ export function processImageToMatrix(
 
   const cellLuminances: number[][] = Array.from({ length: 7 }, () => new Array<number>(width).fill(0));
   const cellAlphas: number[][] = Array.from({ length: 7 }, () => new Array<number>(width).fill(0));
+  const cellEffectiveAlphas: number[][] = Array.from({ length: 7 }, () => new Array<number>(width).fill(0));
 
   const foregroundIsDark = !effectiveInvert;
 
@@ -207,6 +208,7 @@ export function processImageToMatrix(
       let alphaSum = 0;
       let pixelCount = 0;
       const sampleLums: number[] = [];
+      const sampleAlphas: number[] = [];
 
       for (let y = y0; y < y1 && y < analysisH; y++) {
         for (let x = x0; x < x1 && x < analysisW; x++) {
@@ -214,6 +216,7 @@ export function processImageToMatrix(
           const a = analysisData[idx + 3];
           alphaSum += a;
           pixelCount++;
+          sampleAlphas.push(a);
 
           if (a >= 128) {
             const l = Math.round(
@@ -230,6 +233,14 @@ export function processImageToMatrix(
       const avgAlpha = pixelCount > 0 ? alphaSum / pixelCount : 0;
       cellAlphas[row][col] = avgAlpha;
 
+      if (sampleAlphas.length === 0) {
+        cellEffectiveAlphas[row][col] = 0;
+      } else {
+        sampleAlphas.sort((a, b) => a - b);
+        const alphaQ85 = sampleAlphas[Math.min(sampleAlphas.length - 1, Math.floor(sampleAlphas.length * 0.85))];
+        cellEffectiveAlphas[row][col] = Math.round(0.45 * avgAlpha + 0.55 * alphaQ85);
+      }
+
       if (sampleLums.length === 0) {
         cellLuminances[row][col] = foregroundIsDark ? 255 : 0;
       } else {
@@ -244,7 +255,10 @@ export function processImageToMatrix(
     }
   }
 
-  let activeThreshold = options.threshold !== undefined ? options.threshold : otsu.threshold;
+  const useAlphaMask = hasAlphaBackground && activeMode === 'bicolor';
+  let activeThreshold = options.threshold !== undefined
+    ? options.threshold
+    : (useAlphaMask ? 128 : otsu.threshold);
 
   if (options.threshold === undefined) {
     function calculateDensity(t: number): number {
@@ -253,7 +267,13 @@ export function processImageToMatrix(
       for (let r = 0; r < 7; r++) {
         for (let c = 0; c < width; c++) {
           total++;
-          if (cellAlphas[r][c] < 128) {
+          if (useAlphaMask) {
+            const isOpaque = cellEffectiveAlphas[r][c] >= (255 - t);
+            const isCellActive = effectiveInvert ? !isOpaque : isOpaque;
+            if (isCellActive) active++;
+            continue;
+          }
+          if (cellEffectiveAlphas[r][c] < 64) {
             if (effectiveInvert) active++;
             continue;
           }
@@ -266,11 +286,12 @@ export function processImageToMatrix(
       return total > 0 ? active / total : 0;
     }
 
+    const densityIncreasesWithT = useAlphaMask ? !effectiveInvert : foregroundIsDark;
     let density = calculateDensity(activeThreshold);
     let guardSteps = 0;
 
     while (density < 0.12 && guardSteps < 4) {
-      activeThreshold += foregroundIsDark ? 14 : -14;
+      activeThreshold += densityIncreasesWithT ? 14 : -14;
       activeThreshold = Math.max(15, Math.min(240, activeThreshold));
       density = calculateDensity(activeThreshold);
       guardSteps++;
@@ -278,7 +299,7 @@ export function processImageToMatrix(
 
     guardSteps = 0;
     while (density > 0.72 && guardSteps < 4) {
-      activeThreshold += foregroundIsDark ? -14 : 14;
+      activeThreshold += densityIncreasesWithT ? -14 : 14;
       activeThreshold = Math.max(15, Math.min(240, activeThreshold));
       density = calculateDensity(activeThreshold);
       guardSteps++;
@@ -289,7 +310,7 @@ export function processImageToMatrix(
   let maxLum = 0;
   for (let r = 0; r < 7; r++) {
     for (let c = 0; c < width; c++) {
-      if (cellAlphas[r][c] >= 128) {
+      if (cellEffectiveAlphas[r][c] >= 64) {
         const l = cellLuminances[r][c];
         if (l < minLum) minLum = l;
         if (l > maxLum) maxLum = l;
@@ -298,9 +319,16 @@ export function processImageToMatrix(
   }
 
   const lumSpan = Math.max(1, maxLum - minLum);
+  const useAlphaCoverageShading = hasAlphaBackground && activeMode === 'grayscale' && lumSpan < 24;
+  if (useAlphaCoverageShading && options.threshold === undefined) {
+    activeThreshold = 128;
+  }
   const normalizedMid = Math.max(0.02, Math.min(0.98, (activeThreshold - minLum) / lumSpan));
   const targetMid = effectiveInvert ? normalizedMid : (1 - normalizedMid);
   const gamma = Math.log(0.5) / Math.log(targetMid);
+
+  const coverageMid = Math.max(0.05, Math.min(0.95, 1 - (activeThreshold / 255)));
+  const coverageGamma = Math.log(0.5) / Math.log(coverageMid);
 
   const matrix: ContributionLevel[][] = Array.from({ length: 7 }, () =>
     new Array<ContributionLevel>(width).fill(0)
@@ -308,7 +336,34 @@ export function processImageToMatrix(
 
   for (let row = 0; row < 7; row++) {
     for (let col = 0; col < width; col++) {
-      if (cellAlphas[row][col] < 128) {
+      if (useAlphaMask) {
+        const isOpaque = cellEffectiveAlphas[row][col] >= (255 - activeThreshold);
+        const active = effectiveInvert ? !isOpaque : isOpaque;
+        matrix[row][col] = active ? 4 : 0;
+        continue;
+      }
+
+      if (useAlphaCoverageShading) {
+        const rawCoverage = cellAlphas[row][col] / 255;
+        const cov = effectiveInvert ? (1 - rawCoverage) : rawCoverage;
+        const adjustedCov = Math.pow(Math.max(0, Math.min(1, cov)), coverageGamma);
+        let level: ContributionLevel = 0;
+        if (adjustedCov >= 0.80) {
+          level = 4;
+        } else if (adjustedCov >= 0.55) {
+          level = 3;
+        } else if (adjustedCov >= 0.30) {
+          level = 2;
+        } else if (adjustedCov >= 0.12) {
+          level = 1;
+        } else {
+          level = 0;
+        }
+        matrix[row][col] = level;
+        continue;
+      }
+
+      if (cellEffectiveAlphas[row][col] < 64) {
         matrix[row][col] = effectiveInvert ? 4 : 0;
         continue;
       }
