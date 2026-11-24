@@ -172,6 +172,48 @@ function detectContentBounds(
   return { minX, minY, maxX, maxY };
 }
 
+function perceptualColorDistance(
+  r1: number,
+  g1: number,
+  b1: number,
+  r2: number,
+  g2: number,
+  b2: number
+): number {
+  const rMean = (r1 + r2) * 0.5;
+  const dr = r1 - r2;
+  const dg = g1 - g2;
+  const db = b1 - b2;
+  const raw = Math.sqrt(
+    (2 + rMean / 256) * dr * dr +
+    4 * dg * dg +
+    (2 + (255 - rMean) / 256) * db * db
+  );
+  return Math.min(255, Math.round((raw / 765) * 255));
+}
+
+function computeDistanceHistogram(
+  data: Uint8ClampedArray,
+  bgRgb: [number, number, number]
+): { histogram: number[]; minVal: number; maxVal: number } {
+  const histogram = new Array<number>(256).fill(0);
+  let minVal = 255;
+  let maxVal = 0;
+
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] < 128) {
+      continue;
+    }
+    const dist = perceptualColorDistance(data[i], data[i + 1], data[i + 2], bgRgb[0], bgRgb[1], bgRgb[2]);
+    const inverted = 255 - dist;
+    histogram[inverted]++;
+    if (inverted < minVal) minVal = inverted;
+    if (inverted > maxVal) maxVal = inverted;
+  }
+
+  return { histogram, minVal, maxVal };
+}
+
 export function processImageToMatrix(
   img: HTMLImageElement,
   options: ImageProcessingOptions
@@ -233,20 +275,48 @@ export function processImageToMatrix(
     width = Math.max(1, Math.min(44, width));
   }
 
-  const suggestedInvert = (!hasTransparency && !hasAlphaBackground && perimeterIsDark);
+  const lumHistogram = computeLuminanceHistogram(analysisData);
+  const lumOtsu = calculateOtsu(lumHistogram);
+
+  let lumMin = 255;
+  let lumMax = 0;
+  for (let i = 0; i < 256; i++) {
+    if (lumHistogram[i] > 0) {
+      if (i < lumMin) lumMin = i;
+      if (i > lumMax) lumMax = i;
+    }
+  }
+  const lumRange = Math.max(0, lumMax - lumMin);
+
+  let useColorDistance = false;
+  let otsu = lumOtsu;
+
+  if (!hasAlphaBackground && hasUniformBorder) {
+    const distData = computeDistanceHistogram(analysisData, bgRgb);
+    const distRange = Math.max(0, distData.maxVal - distData.minVal);
+    if (distRange > 35) {
+      const distOtsu = calculateOtsu(distData.histogram);
+      if (distRange > lumRange * 1.25 || distOtsu.separability > lumOtsu.separability + 0.08) {
+        useColorDistance = true;
+        otsu = distOtsu;
+      }
+    }
+  }
+
+  const suggestedInvert = (!useColorDistance && !hasTransparency && !hasAlphaBackground && perimeterIsDark);
   const effectiveInvert = options.autoDetectInvert
     ? suggestedInvert
     : (options.invert ?? false);
-
-  const histogram = computeLuminanceHistogram(analysisData);
-  const otsu = calculateOtsu(histogram);
 
   let activeMode: 'bicolor' | 'grayscale';
   if (options.mode === 'auto') {
     const opaqueLums: number[] = [];
     for (let i = 0; i < analysisData.length; i += 4) {
       if (analysisData[i + 3] >= 128) {
-        opaqueLums.push(Math.round(0.299 * analysisData[i] + 0.587 * analysisData[i + 1] + 0.114 * analysisData[i + 2]));
+        const val = useColorDistance
+          ? 255 - perceptualColorDistance(analysisData[i], analysisData[i + 1], analysisData[i + 2], bgRgb[0], bgRgb[1], bgRgb[2])
+          : Math.round(0.299 * analysisData[i] + 0.587 * analysisData[i + 1] + 0.114 * analysisData[i + 2]);
+        opaqueLums.push(val);
       }
     }
 
@@ -298,11 +368,13 @@ export function processImageToMatrix(
           sampleAlphas.push(a);
 
           if (a >= 128) {
-            const l = Math.round(
-              0.299 * analysisData[idx] +
-              0.587 * analysisData[idx + 1] +
-              0.114 * analysisData[idx + 2]
-            );
+            const l = useColorDistance
+              ? 255 - perceptualColorDistance(analysisData[idx], analysisData[idx + 1], analysisData[idx + 2], bgRgb[0], bgRgb[1], bgRgb[2])
+              : Math.round(
+                  0.299 * analysisData[idx] +
+                  0.587 * analysisData[idx + 1] +
+                  0.114 * analysisData[idx + 2]
+                );
             sampleLums.push(l);
             opaqueSum += l;
           }
