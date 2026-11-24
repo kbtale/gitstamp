@@ -214,6 +214,71 @@ function computeDistanceHistogram(
   return { histogram, minVal, maxVal };
 }
 
+function computeAnalysisDimensions(origW: number, origH: number): { w: number; h: number } {
+  const maxLongDim = 512;
+  const targetBase = 256;
+  const minShortH = Math.min(origH, 56);
+
+  let scale = Math.min(1, targetBase / Math.max(1, Math.max(origW, origH)));
+  let h = Math.max(1, Math.round(origH * scale));
+  if (h < minShortH) {
+    scale = Math.min(1, minShortH / Math.max(1, origH));
+  }
+
+  let w = Math.max(1, Math.round(origW * scale));
+  h = Math.max(1, Math.round(origH * scale));
+
+  if (w > maxLongDim) {
+    const clampScale = maxLongDim / w;
+    w = maxLongDim;
+    h = Math.max(1, Math.round(h * clampScale));
+  }
+
+  return { w, h };
+}
+
+function drawScaledToCanvas(
+  img: HTMLImageElement,
+  origW: number,
+  origH: number,
+  targetW: number,
+  targetH: number
+): HTMLCanvasElement {
+  let source: CanvasImageSource = img;
+  let curW = origW;
+  let curH = origH;
+
+  while (curW > targetW * 2 || curH > targetH * 2) {
+    const nextW = Math.max(targetW, Math.round(curW / 2));
+    const nextH = Math.max(targetH, Math.round(curH / 2));
+    const stepCanvas = document.createElement('canvas');
+    stepCanvas.width = nextW;
+    stepCanvas.height = nextH;
+    const stepCtx = stepCanvas.getContext('2d', { willReadFrequently: true });
+    if (!stepCtx) {
+      break;
+    }
+    stepCtx.imageSmoothingEnabled = true;
+    stepCtx.imageSmoothingQuality = 'high';
+    stepCtx.drawImage(source, 0, 0, nextW, nextH);
+    source = stepCanvas;
+    curW = nextW;
+    curH = nextH;
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = targetW;
+  canvas.height = targetH;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) {
+    throw new Error('Could not create analysis canvas context');
+  }
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(source, 0, 0, targetW, targetH);
+  return canvas;
+}
+
 export function processImageToMatrix(
   img: HTMLImageElement,
   options: ImageProcessingOptions
@@ -222,30 +287,12 @@ export function processImageToMatrix(
   const originalHeight = img.naturalHeight || img.height;
   const height = 7;
 
-  const maxAnalysisDim = 256;
-  let analysisW = originalWidth;
-  let analysisH = originalHeight;
-  if (originalWidth > maxAnalysisDim || originalHeight > maxAnalysisDim) {
-    if (originalWidth >= originalHeight) {
-      analysisW = maxAnalysisDim;
-      analysisH = Math.max(1, Math.round(maxAnalysisDim * (originalHeight / originalWidth)));
-    } else {
-      analysisH = maxAnalysisDim;
-      analysisW = Math.max(1, Math.round(maxAnalysisDim * (originalWidth / originalHeight)));
-    }
-  }
-
-  const analysisCanvas = document.createElement('canvas');
-  analysisCanvas.width = analysisW;
-  analysisCanvas.height = analysisH;
+  const { w: analysisW, h: analysisH } = computeAnalysisDimensions(originalWidth, originalHeight);
+  const analysisCanvas = drawScaledToCanvas(img, originalWidth, originalHeight, analysisW, analysisH);
   const analysisCtx = analysisCanvas.getContext('2d', { willReadFrequently: true });
   if (!analysisCtx) {
     throw new Error('Could not create analysis canvas context');
   }
-
-  analysisCtx.imageSmoothingEnabled = true;
-  analysisCtx.imageSmoothingQuality = 'high';
-  analysisCtx.drawImage(img, 0, 0, analysisW, analysisH);
 
   const analysisImageData = analysisCtx.getImageData(0, 0, analysisW, analysisH);
   const analysisData = analysisImageData.data;
@@ -343,13 +390,17 @@ export function processImageToMatrix(
 
   for (let row = 0; row < 7; row++) {
     const relY0 = Math.floor((row * cropH) / 7);
-    const relY1 = Math.max(relY0 + 1, Math.ceil(((row + 1) * cropH) / 7));
+    const relY1 = row === 6
+      ? cropH
+      : Math.max(relY0 + 1, Math.floor(((row + 1) * cropH) / 7));
     const y0 = bounds.minY + relY0;
     const y1 = Math.min(bounds.maxY + 1, bounds.minY + relY1);
 
     for (let col = 0; col < width; col++) {
       const relX0 = Math.floor((col * cropW) / width);
-      const relX1 = Math.max(relX0 + 1, Math.ceil(((col + 1) * cropW) / width));
+      const relX1 = col === width - 1
+        ? cropW
+        : Math.max(relX0 + 1, Math.floor(((col + 1) * cropW) / width));
       const x0 = bounds.minX + relX0;
       const x1 = Math.min(bounds.maxX + 1, bounds.minX + relX1);
 
