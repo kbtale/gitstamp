@@ -279,6 +279,69 @@ function drawScaledToCanvas(
   return canvas;
 }
 
+function computeKMeansCutoffs(values: number[], k: number, fallback: number[]): number[] {
+  if (values.length < k * 2) {
+    return fallback;
+  }
+
+  const sorted = [...values].sort((a, b) => a - b);
+  if (sorted[sorted.length - 1] - sorted[0] < 0.08) {
+    return fallback;
+  }
+
+  const centroids: number[] = [];
+  for (let i = 0; i < k; i++) {
+    const idx = Math.min(sorted.length - 1, Math.floor(((i + 0.5) / k) * sorted.length));
+    centroids.push(sorted[idx]);
+  }
+
+  for (let iter = 0; iter < 12; iter++) {
+    const sums = new Array<number>(k).fill(0);
+    const counts = new Array<number>(k).fill(0);
+
+    for (let i = 0; i < sorted.length; i++) {
+      const v = sorted[i];
+      let bestIdx = 0;
+      let bestDist = Math.abs(v - centroids[0]);
+      for (let j = 1; j < k; j++) {
+        const d = Math.abs(v - centroids[j]);
+        if (d < bestDist) {
+          bestDist = d;
+          bestIdx = j;
+        }
+      }
+      sums[bestIdx] += v;
+      counts[bestIdx]++;
+    }
+
+    let moved = false;
+    for (let j = 0; j < k; j++) {
+      if (counts[j] > 0) {
+        const nextVal = sums[j] / counts[j];
+        if (Math.abs(nextVal - centroids[j]) > 0.001) {
+          moved = true;
+        }
+        centroids[j] = nextVal;
+      }
+    }
+
+    if (!moved) {
+      break;
+    }
+  }
+
+  centroids.sort((a, b) => a - b);
+  const cutoffs: number[] = [];
+  for (let i = 0; i < k - 1; i++) {
+    if (centroids[i + 1] - centroids[i] < 0.02) {
+      return fallback;
+    }
+    cutoffs.push((centroids[i] + centroids[i + 1]) * 0.5);
+  }
+
+  return cutoffs;
+}
+
 export function processImageToMatrix(
   img: HTMLImageElement,
   options: ImageProcessingOptions
@@ -358,22 +421,38 @@ export function processImageToMatrix(
   let activeMode: 'bicolor' | 'grayscale';
   if (options.mode === 'auto') {
     const opaqueLums: number[] = [];
-    for (let i = 0; i < analysisData.length; i += 4) {
-      if (analysisData[i + 3] >= 128) {
-        const val = useColorDistance
-          ? 255 - perceptualColorDistance(analysisData[i], analysisData[i + 1], analysisData[i + 2], bgRgb[0], bgRgb[1], bgRgb[2])
-          : Math.round(0.299 * analysisData[i] + 0.587 * analysisData[i + 1] + 0.114 * analysisData[i + 2]);
-        opaqueLums.push(val);
+    for (let y = bounds.minY; y <= bounds.maxY; y++) {
+      for (let x = bounds.minX; x <= bounds.maxX; x++) {
+        const idx = (y * analysisW + x) * 4;
+        if (analysisData[idx + 3] >= 128) {
+          const val = useColorDistance
+            ? 255 - perceptualColorDistance(analysisData[idx], analysisData[idx + 1], analysisData[idx + 2], bgRgb[0], bgRgb[1], bgRgb[2])
+            : Math.round(0.299 * analysisData[idx] + 0.587 * analysisData[idx + 1] + 0.114 * analysisData[idx + 2]);
+          opaqueLums.push(val);
+        }
       }
     }
 
     let isMultishade = false;
     if (opaqueLums.length > 20) {
-      const mean = opaqueLums.reduce((a, b) => a + b, 0) / opaqueLums.length;
-      const variance = opaqueLums.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / opaqueLums.length;
-      const stdDev = Math.sqrt(variance);
-      if (stdDev > 45 && otsu.separability < 0.38) {
-        isMultishade = true;
+      opaqueLums.sort((a, b) => a - b);
+      const p05 = opaqueLums[Math.floor(opaqueLums.length * 0.05)];
+      const p95 = opaqueLums[Math.min(opaqueLums.length - 1, Math.floor(opaqueLums.length * 0.95))];
+      const span = p95 - p05;
+
+      if (span >= 40) {
+        const lowBand = p05 + span * 0.20;
+        const highBand = p95 - span * 0.20;
+        let midtoneCount = 0;
+        for (let i = 0; i < opaqueLums.length; i++) {
+          if (opaqueLums[i] > lowBand && opaqueLums[i] < highBand) {
+            midtoneCount++;
+          }
+        }
+        const midtoneRatio = midtoneCount / opaqueLums.length;
+        if (midtoneRatio >= 0.22 || (otsu.separability < 0.38 && span >= 55)) {
+          isMultishade = true;
+        }
       }
     }
 
@@ -544,6 +623,24 @@ export function processImageToMatrix(
   const coverageMid = Math.max(0.05, Math.min(0.95, 1 - (activeThreshold / 255)));
   const coverageGamma = Math.log(0.5) / Math.log(coverageMid);
 
+  let levelCutoffs: number[] = hasTransparency ? [0.25, 0.50, 0.75] : [0.15, 0.35, 0.55, 0.80];
+  if (activeMode === 'grayscale' && !useAlphaCoverageShading) {
+    const normValues: number[] = [];
+    for (let r = 0; r < 7; r++) {
+      for (let c = 0; c < width; c++) {
+        if (cellEffectiveAlphas[r][c] >= 64) {
+          const t = (cellLuminances[r][c] - minLum) / lumSpan;
+          normValues.push(effectiveInvert ? t : (1 - t));
+        }
+      }
+    }
+    levelCutoffs = computeKMeansCutoffs(
+      normValues,
+      hasTransparency ? 4 : 5,
+      levelCutoffs
+    );
+  }
+
   const matrix: ContributionLevel[][] = Array.from({ length: 7 }, () =>
     new Array<ContributionLevel>(width).fill(0)
   );
@@ -595,23 +692,23 @@ export function processImageToMatrix(
 
         let level: ContributionLevel = 0;
         if (hasTransparency) {
-          if (adjustedNorm >= 0.75) {
+          if (adjustedNorm >= levelCutoffs[2]) {
             level = 4;
-          } else if (adjustedNorm >= 0.50) {
+          } else if (adjustedNorm >= levelCutoffs[1]) {
             level = 3;
-          } else if (adjustedNorm >= 0.25) {
+          } else if (adjustedNorm >= levelCutoffs[0]) {
             level = 2;
           } else {
             level = 1;
           }
         } else {
-          if (adjustedNorm >= 0.80) {
+          if (adjustedNorm >= levelCutoffs[3]) {
             level = 4;
-          } else if (adjustedNorm >= 0.55) {
+          } else if (adjustedNorm >= levelCutoffs[2]) {
             level = 3;
-          } else if (adjustedNorm >= 0.35) {
+          } else if (adjustedNorm >= levelCutoffs[1]) {
             level = 2;
-          } else if (adjustedNorm >= 0.15) {
+          } else if (adjustedNorm >= levelCutoffs[0]) {
             level = 1;
           } else {
             level = 0;
