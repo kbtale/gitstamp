@@ -299,7 +299,8 @@ export function processImageToMatrix(
 
   const lumSpan = Math.max(1, maxLum - minLum);
   const normalizedMid = Math.max(0.02, Math.min(0.98, (activeThreshold - minLum) / lumSpan));
-  const gamma = Math.log(0.5) / Math.log(normalizedMid);
+  const targetMid = effectiveInvert ? normalizedMid : (1 - normalizedMid);
+  const gamma = Math.log(0.5) / Math.log(targetMid);
 
   const matrix: ContributionLevel[][] = Array.from({ length: 7 }, () =>
     new Array<ContributionLevel>(width).fill(0)
