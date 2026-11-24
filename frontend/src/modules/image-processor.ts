@@ -260,49 +260,61 @@ export function processImageToMatrix(
     ? options.threshold
     : (useAlphaMask ? 128 : otsu.threshold);
 
-  if (options.threshold === undefined) {
-    function calculateDensity(t: number): number {
-      let active = 0;
-      let total = 0;
-      for (let r = 0; r < 7; r++) {
-        for (let c = 0; c < width; c++) {
-          total++;
-          if (useAlphaMask) {
-            const isOpaque = cellEffectiveAlphas[r][c] >= (255 - t);
-            const isCellActive = effectiveInvert ? !isOpaque : isOpaque;
-            if (isCellActive) active++;
-            continue;
+  if (options.threshold === undefined && activeMode === 'bicolor') {
+    let activeCount = 0;
+    const totalCells = 7 * width;
+    const sampleValues: number[] = [];
+
+    for (let r = 0; r < 7; r++) {
+      for (let c = 0; c < width; c++) {
+        if (useAlphaMask) {
+          const alphaVal = cellEffectiveAlphas[r][c];
+          sampleValues.push(alphaVal);
+          const isOpaque = alphaVal >= (255 - activeThreshold);
+          if (effectiveInvert ? !isOpaque : isOpaque) {
+            activeCount++;
           }
-          if (cellEffectiveAlphas[r][c] < 64) {
-            if (effectiveInvert) active++;
-            continue;
+          continue;
+        }
+        if (cellEffectiveAlphas[r][c] < 64) {
+          if (effectiveInvert) {
+            activeCount++;
           }
-          const lum = cellLuminances[r][c];
-          const isDark = lum < t;
-          const isCellActive = effectiveInvert ? !isDark : isDark;
-          if (isCellActive) active++;
+          continue;
+        }
+        const lum = cellLuminances[r][c];
+        sampleValues.push(lum);
+        const isDark = lum < activeThreshold;
+        if (effectiveInvert ? !isDark : isDark) {
+          activeCount++;
         }
       }
-      return total > 0 ? active / total : 0;
     }
 
-    const densityIncreasesWithT = useAlphaMask ? !effectiveInvert : foregroundIsDark;
-    let density = calculateDensity(activeThreshold);
-    let guardSteps = 0;
+    const density = totalCells > 0 ? activeCount / totalCells : 0;
+    if (sampleValues.length > 0 && (density < 0.12 || density > 0.72)) {
+      sampleValues.sort((a, b) => a - b);
+      const minVal = sampleValues[0];
+      const maxVal = sampleValues[sampleValues.length - 1];
 
-    while (density < 0.12 && guardSteps < 4) {
-      activeThreshold += densityIncreasesWithT ? 14 : -14;
-      activeThreshold = Math.max(15, Math.min(240, activeThreshold));
-      density = calculateDensity(activeThreshold);
-      guardSteps++;
-    }
-
-    guardSteps = 0;
-    while (density > 0.72 && guardSteps < 4) {
-      activeThreshold += densityIncreasesWithT ? -14 : 14;
-      activeThreshold = Math.max(15, Math.min(240, activeThreshold));
-      density = calculateDensity(activeThreshold);
-      guardSteps++;
+      if (maxVal - minVal > 4) {
+        const targetRatio = density < 0.12 ? 0.22 : 0.60;
+        if (useAlphaMask) {
+          const idx = effectiveInvert
+            ? Math.min(sampleValues.length - 1, Math.floor(sampleValues.length * targetRatio))
+            : Math.max(0, Math.floor(sampleValues.length * (1 - targetRatio)));
+          const targetAlpha = sampleValues[idx];
+          if (targetAlpha > 0) {
+            activeThreshold = Math.max(15, Math.min(240, 255 - targetAlpha + (effectiveInvert ? -1 : 1)));
+          }
+        } else {
+          const idx = foregroundIsDark
+            ? Math.min(sampleValues.length - 1, Math.floor(sampleValues.length * targetRatio))
+            : Math.max(0, Math.floor(sampleValues.length * (1 - targetRatio)));
+          const targetLum = sampleValues[idx];
+          activeThreshold = Math.max(15, Math.min(240, targetLum + (foregroundIsDark ? 1 : -1)));
+        }
+      }
     }
   }
 
