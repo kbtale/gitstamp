@@ -14,7 +14,7 @@ export class MatrixStore {
   private currentStrokeBrush: ContributionLevel = 4;
 
   constructor(initialWidth: number = 24) {
-    this.width = Math.max(1, Math.min(44, initialWidth));
+    this.width = Math.max(1, Math.min(53, initialWidth));
     this.matrix = this.createEmptyMatrix(this.width);
     this.undoStack = createUndoStack(this.getMatrix());
   }
@@ -46,7 +46,7 @@ export class MatrixStore {
   }
 
   public setMatrix(newMatrix: ContributionLevel[][]): void {
-    const newWidth = Math.max(1, Math.min(44, newMatrix[0]?.length || 24));
+    const newWidth = Math.max(1, Math.min(53, newMatrix[0]?.length || 24));
     this.width = newWidth;
     this.matrix = newMatrix.map((row) => [...row]);
     this.undoStack.record(this.getMatrix());
@@ -69,7 +69,7 @@ export class MatrixStore {
   }
 
   public setWidth(newWidth: number): void {
-    const clamped = Math.max(1, Math.min(44, newWidth));
+    const clamped = Math.max(1, Math.min(53, newWidth));
     if (clamped === this.width) {
       return;
     }

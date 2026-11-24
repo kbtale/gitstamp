@@ -257,8 +257,8 @@ const invertToggle = createToggleSwitch({
 
 const widthSlider = createSlider({
   container: widthContainer,
-  min: 7,
-  max: 44,
+  min: 1,
+  max: 53,
   initialValue: 24,
   label: 'Columns Width',
   onChange: (cols) => {
@@ -930,19 +930,14 @@ async function handleFileUpload(file: File, targetId: string = activeArtworkId) 
     targetItem.imageDims = `${img.naturalWidth} × ${img.naturalHeight} px · ${Math.round(file.size / 1024)} KB`;
     targetItem.name = file.name;
 
-    const ratio = img.naturalWidth / Math.max(1, img.naturalHeight);
-    let targetWidth = Math.round(7 * ratio);
-    targetWidth = Math.max(1, Math.min(44, targetWidth));
-    targetItem.width = targetWidth;
-
     const result = processImageToMatrix(img, {
       mode: targetItem.mode,
       threshold: undefined,
       invert: targetItem.invert,
-      customWidth: targetWidth,
       autoDetectInvert: true
     });
 
+    targetItem.width = result.width;
     targetItem.isUserManualThreshold = false;
     targetItem.threshold = result.calculatedThreshold;
     thresholdSlider.setValue(result.calculatedThreshold);
