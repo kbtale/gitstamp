@@ -1,22 +1,43 @@
 import { readFileSync } from 'node:fs';
-import { execSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 
-function run(command, env = {}) {
-  return execSync(command, {
-    stdio: 'pipe',
+export function runGit(args, env = {}, input) {
+  const result = spawnSync('git', args, {
+    input,
+    stdio: input !== undefined ? ['pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, ...env },
     encoding: 'utf8'
   });
+
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(`git ${args[0]} failed: ${(result.stderr || '').trim() || 'unknown error'}`);
+  }
+  return result.stdout || '';
 }
 
-function formatDate(date) {
+export function sanitizeGitIdentity(value, fieldName) {
+  if (typeof value !== 'string') {
+    throw new Error(`Invalid ${fieldName}`);
+  }
+  const trimmed = value.trim();
+  if (!trimmed || /[\r\n<>]/.test(trimmed)) {
+    throw new Error(`Invalid ${fieldName}`);
+  }
+  return trimmed;
+}
+
+export function formatDate(date) {
   const y = date.getUTCFullYear();
   const m = String(date.getUTCMonth() + 1).padStart(2, '0');
   const d = String(date.getUTCDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
 
-async function fetchContributionCalendar(token, from, to) {
+export async function fetchContributionCalendar(token, from, to) {
   let query;
   let variables = {};
   if (from && to) {
@@ -81,7 +102,7 @@ async function fetchContributionCalendar(token, from, to) {
   return json.data.viewer.contributionsCollection.contributionCalendar;
 }
 
-function determineQuartileThresholds(calendar, flattenBackground = true) {
+export function determineQuartileThresholds(calendar, flattenBackground = true) {
   const levelMap = {
     NONE: 0,
     FIRST_QUARTILE: 1,
@@ -99,8 +120,8 @@ function determineQuartileThresholds(calendar, flattenBackground = true) {
   };
   const activeCounts = [];
 
-  for (const week of calendar.weeks) {
-    for (const day of week.contributionDays) {
+  for (const week of calendar.weeks || []) {
+    for (const day of week.contributionDays || []) {
       existingMap.set(day.date, day.contributionCount);
       const lvl = levelMap[day.contributionLevel];
       if (day.contributionCount > 0) {
@@ -164,14 +185,75 @@ function determineQuartileThresholds(calendar, flattenBackground = true) {
   };
 }
 
-async function main() {
+export function buildYearCommits({
+  year,
+  isRolling,
+  yearMatrix,
+  col0Sunday,
+  totalCols,
+  existingMap,
+  thresholds,
+  processedDates
+}) {
+  const commits = [];
+  const matrixWidth = yearMatrix[0]?.length || 0;
+  if (matrixWidth === 0 || matrixWidth > totalCols) {
+    return commits;
+  }
+
+  const startCol = Math.floor((totalCols - matrixWidth) / 2);
+
+  for (let c = 0; c < matrixWidth; c++) {
+    const graphCol = startCol + c;
+    if (graphCol < 0 || graphCol >= totalCols) {
+      continue;
+    }
+
+    for (let r = 0; r < 7; r++) {
+      const level = yearMatrix[r]?.[c] || 0;
+      if (level === 0) {
+        continue;
+      }
+
+      const dayOffset = graphCol * 7 + r;
+      const cellDate = new Date(col0Sunday.getTime() + dayOffset * 86400000);
+      if (!isRolling && cellDate.getUTCFullYear() !== year) {
+        continue;
+      }
+
+      const dateStr = formatDate(cellDate);
+      if (processedDates.has(dateStr)) {
+        continue;
+      }
+      processedDates.add(dateStr);
+
+      const desiredCommits = thresholds[level] || level;
+      const existingCommits = existingMap.get(dateStr) || 0;
+      const commitsToInject = Math.max(0, desiredCommits - existingCommits);
+
+      if (commitsToInject > 0) {
+        commits.push({
+          dateStr,
+          count: commitsToInject
+        });
+      }
+    }
+  }
+
+  return commits;
+}
+
+export async function main() {
   const artContent = readFileSync('art.json', 'utf8');
   const art = JSON.parse(artContent);
 
-  const { authorName, authorEmail, matrix } = art;
-  if (!authorName || !authorEmail || !Array.isArray(matrix)) {
+  const { matrix } = art;
+  if (!Array.isArray(matrix)) {
     throw new Error('Invalid art.json specification');
   }
+
+  const authorName = sanitizeGitIdentity(art.authorName, 'authorName');
+  const authorEmail = sanitizeGitIdentity(art.authorEmail, 'authorEmail');
 
   const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
   if (!token) {
@@ -223,63 +305,31 @@ async function main() {
     }
 
     const { existingMap, thresholds } = determineQuartileThresholds(calendar, flattenBg);
-    const matrixWidth = yearMatrix[0]?.length || 0;
-    if (matrixWidth === 0 || matrixWidth > totalCols) {
-      continue;
-    }
-
-    const startCol = Math.floor((totalCols - matrixWidth) / 2);
-
-    for (let c = 0; c < matrixWidth; c++) {
-      const graphCol = startCol + c;
-      if (graphCol < 0 || graphCol >= totalCols) {
-        continue;
-      }
-
-      for (let r = 0; r < 7; r++) {
-        const level = yearMatrix[r][c] || 0;
-        if (level === 0) {
-          continue;
-        }
-
-        const dayOffset = graphCol * 7 + r;
-        const cellDate = new Date(col0Sunday.getTime() + dayOffset * 86400000);
-        if (!isRolling && cellDate.getUTCFullYear() !== yr) {
-          continue;
-        }
-
-        const dateStr = formatDate(cellDate);
-        if (processedDates.has(dateStr)) {
-          continue;
-        }
-        processedDates.add(dateStr);
-
-        const desiredCommits = thresholds[level] || level;
-        const existingCommits = existingMap.get(dateStr) || 0;
-        const commitsToInject = Math.max(0, desiredCommits - existingCommits);
-
-        if (commitsToInject > 0) {
-          commitsByDate.push({
-            dateStr,
-            count: commitsToInject
-          });
-        }
-      }
-    }
+    const yearCommits = buildYearCommits({
+      year: yr,
+      isRolling,
+      yearMatrix,
+      col0Sunday,
+      totalCols,
+      existingMap,
+      thresholds,
+      processedDates
+    });
+    commitsByDate.push(...yearCommits);
   }
 
   commitsByDate.sort((a, b) => a.dateStr.localeCompare(b.dateStr));
 
-  run(`git config user.name "${authorName}"`);
-  run(`git config user.email "${authorEmail}"`);
+  runGit(['config', 'user.name', authorName]);
+  runGit(['config', 'user.email', authorEmail]);
 
-  run('git checkout --orphan temp-render');
-  run('git reset');
-  run('git add -A');
-  run('git commit -m "chore(gitstamp): base sync"');
+  runGit(['checkout', '--orphan', 'temp-render']);
+  runGit(['reset']);
+  runGit(['add', '-A']);
+  runGit(['commit', '-m', 'chore(gitstamp): base sync']);
 
   if (commitsByDate.length > 0) {
-    const baseSha = run('git rev-parse HEAD').trim();
+    const baseSha = runGit(['rev-parse', 'HEAD']).trim();
     let input = '';
     let markId = 1;
 
@@ -296,27 +346,18 @@ async function main() {
       }
     }
 
-    const importResult = spawnSync('git', ['fast-import', '--quiet'], {
-      input,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      encoding: 'utf8'
-    });
-
-    if (importResult.error) {
-      throw importResult.error;
-    }
-    if (importResult.status !== 0) {
-      throw new Error(`git fast-import failed: ${importResult.stderr || 'unknown error'}`);
-    }
-
-    run('git reset --hard refs/heads/temp-render');
+    runGit(['fast-import', '--quiet'], {}, input);
+    runGit(['reset', '--hard', 'refs/heads/temp-render']);
   }
 
-  run('git branch -M main');
-  run('git push -f origin main');
+  runGit(['branch', '-M', 'main']);
+  runGit(['push', '-f', 'origin', 'main']);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+const isDirectExecution = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isDirectExecution) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
