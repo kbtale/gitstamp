@@ -31,6 +31,9 @@ import {
   createToggleSwitch,
   createBrushPalette
 } from './modules/ui-components';
+import { renderTextToMatrix } from './modules/pixel-text';
+import { STARTER_PRESETS, StarterPreset } from './modules/starter-presets';
+import { parseArtMatrix, serializeArtMatrix } from './modules/art-io';
 
 const DEFAULT_CLIENT_ID = (import.meta as any).env?.VITE_GITHUB_APP_CLIENT_ID || 'Iv23liETnS8etdqB3qHt';
 const DEFAULT_APP_SLUG = (import.meta as any).env?.VITE_GITHUB_APP_SLUG || 'gitstamp';
@@ -78,6 +81,18 @@ const btnClearGrid = document.getElementById('btn-clear-grid') as HTMLButtonElem
 const btnInvertGrid = document.getElementById('btn-invert-grid') as HTMLButtonElement;
 const btnUndoGrid = document.getElementById('btn-undo-grid') as HTMLButtonElement;
 const btnRedoGrid = document.getElementById('btn-redo-grid') as HTMLButtonElement;
+const btnNudgeLeft = document.getElementById('btn-nudge-left') as HTMLButtonElement;
+const btnNudgeUp = document.getElementById('btn-nudge-up') as HTMLButtonElement;
+const btnNudgeDown = document.getElementById('btn-nudge-down') as HTMLButtonElement;
+const btnNudgeRight = document.getElementById('btn-nudge-right') as HTMLButtonElement;
+const btnFlipH = document.getElementById('btn-flip-h') as HTMLButtonElement;
+const btnFlipV = document.getElementById('btn-flip-v') as HTMLButtonElement;
+const btnExportJson = document.getElementById('btn-export-json') as HTMLButtonElement;
+const btnImportJson = document.getElementById('btn-import-json') as HTMLButtonElement;
+const jsonImportInput = document.getElementById('json-import-input') as HTMLInputElement;
+const pixelTextForm = document.getElementById('pixel-text-form') as HTMLFormElement;
+const pixelTextInput = document.getElementById('pixel-text-input') as HTMLInputElement;
+const presetGallery = document.getElementById('preset-gallery') as HTMLElement;
 
 const graphPreviewContainer = document.getElementById('graph-preview-container') as HTMLElement;
 const monthLabelsRow = document.getElementById('month-labels-row') as HTMLElement;
@@ -894,6 +909,141 @@ btnClearGrid.addEventListener('click', () => matrixStore.clear());
 btnInvertGrid.addEventListener('click', () => matrixStore.invert());
 btnUndoGrid.addEventListener('click', () => matrixStore.undo());
 btnRedoGrid.addEventListener('click', () => matrixStore.redo());
+btnNudgeLeft.addEventListener('click', () => matrixStore.nudge(-1, 0));
+btnNudgeUp.addEventListener('click', () => matrixStore.nudge(0, -1));
+btnNudgeDown.addEventListener('click', () => matrixStore.nudge(0, 1));
+btnNudgeRight.addEventListener('click', () => matrixStore.nudge(1, 0));
+btnFlipH.addEventListener('click', () => matrixStore.flipHorizontal());
+btnFlipV.addEventListener('click', () => matrixStore.flipVertical());
+
+function applyMatrixToActiveArtwork(matrix: ContributionLevel[][], label?: string) {
+  const item = getActiveArtwork();
+  if (item.imageThumbUrl) {
+    URL.revokeObjectURL(item.imageThumbUrl);
+  }
+  item.image = null;
+  item.imageThumbUrl = null;
+  item.imageFilename = null;
+  item.imageDims = `7 × ${matrix[0]?.length || 1} px`;
+  if (label) {
+    item.name = label;
+  }
+  item.width = matrix[0]?.length || 1;
+  item.matrix = cloneMatrix(matrix);
+  isSyncingMatrix = true;
+  matrixStore.setMatrix(matrix);
+  isSyncingMatrix = false;
+  syncSidebarToActiveArtwork();
+  renderArtworkItemsList();
+  renderYearSelector();
+  renderDeployPlan();
+  renderCurrentView(matrixStore.getMatrix());
+}
+
+function renderPresetGallery() {
+  if (!presetGallery) {
+    return;
+  }
+  presetGallery.innerHTML = '';
+
+  STARTER_PRESETS.forEach((preset: StarterPreset) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'preset-chip';
+    btn.title = `Load ${preset.name} preset`;
+
+    const mini = document.createElement('span');
+    mini.className = 'preset-mini-grid';
+    mini.setAttribute('aria-hidden', 'true');
+    const cols = Math.min(12, preset.matrix[0].length);
+    mini.style.gridTemplateColumns = `repeat(${cols}, 3px)`;
+    for (let r = 0; r < 7; r++) {
+      for (let c = 0; c < cols; c++) {
+        const srcCol = Math.floor((c / cols) * preset.matrix[0].length);
+        const dot = document.createElement('span');
+        dot.className = `preset-dot cell-level-${preset.matrix[r][srcCol]}`;
+        mini.appendChild(dot);
+      }
+    }
+
+    const label = document.createElement('span');
+    label.className = 'preset-chip-label';
+    label.textContent = preset.name;
+
+    btn.appendChild(mini);
+    btn.appendChild(label);
+    btn.addEventListener('click', () => {
+      applyMatrixToActiveArtwork(preset.matrix, preset.name);
+    });
+    presetGallery.appendChild(btn);
+  });
+}
+
+renderPresetGallery();
+
+pixelTextForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const text = pixelTextInput.value.trim();
+  if (!text) {
+    return;
+  }
+  const activeBrush = matrixStore.getActiveBrush();
+  const shade: ContributionLevel = activeBrush > 0 ? activeBrush : 4;
+  const matrix = renderTextToMatrix(text, { shade, spacing: 1, maxWidth: 53 });
+  applyMatrixToActiveArtwork(matrix, text.toUpperCase());
+});
+
+btnExportJson.addEventListener('click', () => {
+  const item = getActiveArtwork();
+  const json = serializeArtMatrix(matrixStore.getMatrix(), item.name);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${item.name.toLowerCase().replace(/[^a-z0-9-_]+/g, '-') || 'gitstamp-art'}.json`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+});
+
+btnImportJson.addEventListener('click', () => {
+  jsonImportInput.value = '';
+  jsonImportInput.click();
+});
+
+jsonImportInput.addEventListener('change', async () => {
+  const file = jsonImportInput.files?.[0];
+  if (!file) {
+    return;
+  }
+  try {
+    const raw = await file.text();
+    const { matrix, name } = parseArtMatrix(raw);
+    applyMatrixToActiveArtwork(matrix, name || file.name.replace(/\.json$/i, ''));
+  } catch (err: any) {
+    alert(`Invalid art JSON: ${err.message || err}`);
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  const target = e.target as HTMLElement | null;
+  if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+    return;
+  }
+  const mod = e.ctrlKey || e.metaKey;
+  if (!mod) {
+    return;
+  }
+  const key = e.key.toLowerCase();
+  if (key === 'z' && !e.shiftKey) {
+    e.preventDefault();
+    matrixStore.undo();
+  } else if (key === 'y' || (key === 'z' && e.shiftKey)) {
+    e.preventDefault();
+    matrixStore.redo();
+  }
+});
 
 fileInput.addEventListener('change', () => {
   const file = fileInput.files?.[0];

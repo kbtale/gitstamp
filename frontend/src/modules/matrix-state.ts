@@ -108,6 +108,34 @@ export class MatrixStore {
     this.notify();
   }
 
+  public nudge(dx: number, dy: number): void {
+    const next = this.createEmptyMatrix(this.width);
+    for (let r = 0; r < 7; r++) {
+      for (let c = 0; c < this.width; c++) {
+        const nr = r + dy;
+        const nc = c + dx;
+        if (nr >= 0 && nr < 7 && nc >= 0 && nc < this.width) {
+          next[nr][nc] = this.matrix[r][c];
+        }
+      }
+    }
+    this.matrix = next;
+    this.undoStack.record(this.getMatrix());
+    this.notify();
+  }
+
+  public flipHorizontal(): void {
+    this.matrix = this.matrix.map((row) => [...row].reverse());
+    this.undoStack.record(this.getMatrix());
+    this.notify();
+  }
+
+  public flipVertical(): void {
+    this.matrix = [...this.matrix].reverse().map((row) => [...row]);
+    this.undoStack.record(this.getMatrix());
+    this.notify();
+  }
+
   public subscribe(listener: MatrixListener): () => void {
     this.listeners.add(listener);
     listener(this.getMatrix());

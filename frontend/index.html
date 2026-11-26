@@ -59,6 +59,23 @@
         <div class="sidebar-divider"></div>
 
         <div class="control-group">
+          <label class="control-label" for="pixel-text-input">Pixel Text</label>
+          <form class="pixel-text-form" id="pixel-text-form">
+            <input type="text" id="pixel-text-input" class="text-input text-input-sm" maxlength="16" placeholder="HELLO, HIRE ME…" autocomplete="off" spellcheck="false" />
+            <button type="submit" class="btn btn-secondary btn-sm" id="btn-apply-text">Stamp</button>
+          </form>
+        </div>
+
+        <div class="control-group">
+          <div class="control-label">
+            <span>Starter Presets</span>
+          </div>
+          <div class="preset-gallery" id="preset-gallery"></div>
+        </div>
+
+        <div class="sidebar-divider"></div>
+
+        <div class="control-group">
           <label class="control-label">Conversion Mode</label>
           <div id="mode-control-container"></div>
         </div>
@@ -78,10 +95,25 @@
 
         <div class="tools-bar">
           <div id="brush-palette-container"></div>
-          <button type="button" class="btn btn-secondary btn-sm" id="btn-clear-grid">Clear</button>
-          <button type="button" class="btn btn-secondary btn-sm" id="btn-invert-grid">Invert</button>
-          <button type="button" class="btn btn-secondary btn-sm" id="btn-undo-grid">Undo</button>
-          <button type="button" class="btn btn-secondary btn-sm" id="btn-redo-grid">Redo</button>
+          <div class="tools-divider" aria-hidden="true"></div>
+          <div class="tools-group" role="group" aria-label="Transform tools">
+            <button type="button" class="btn btn-secondary btn-sm btn-icon-only" id="btn-nudge-left" aria-label="Nudge left" title="Nudge left">←</button>
+            <button type="button" class="btn btn-secondary btn-sm btn-icon-only" id="btn-nudge-up" aria-label="Nudge up" title="Nudge up">↑</button>
+            <button type="button" class="btn btn-secondary btn-sm btn-icon-only" id="btn-nudge-down" aria-label="Nudge down" title="Nudge down">↓</button>
+            <button type="button" class="btn btn-secondary btn-sm btn-icon-only" id="btn-nudge-right" aria-label="Nudge right" title="Nudge right">→</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-flip-h" aria-label="Flip horizontally" title="Flip horizontally">Flip H</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-flip-v" aria-label="Flip vertically" title="Flip vertically">Flip V</button>
+          </div>
+          <div class="tools-divider" aria-hidden="true"></div>
+          <div class="tools-group" role="group" aria-label="History and file tools">
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-undo-grid" title="Undo (Ctrl+Z)">Undo</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-redo-grid" title="Redo (Ctrl+Y)">Redo</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-invert-grid">Invert</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-clear-grid">Clear</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-export-json" title="Export art.json">Export</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-import-json" title="Import art.json">Import</button>
+            <input type="file" id="json-import-input" class="file-input-hidden" accept="application/json,.json" />
+          </div>
           <div class="view-controls" style="margin-left: auto; display: flex; align-items: center; gap: 0.5rem;">
             <div id="view-mode-container"></div>
             <button type="button" class="theme-toggle-btn" id="btn-theme-toggle" aria-label="Toggle dark/light theme" title="Toggle dark/light theme">
