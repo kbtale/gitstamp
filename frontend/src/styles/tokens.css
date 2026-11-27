@@ -1,16 +1,18 @@
 :root {
   color-scheme: dark;
 
-  --color-bg-base: #090d11;
-  --color-bg-surface: #0f141b;
-  --color-bg-elevated: #161d26;
-  --color-bg-hover: #1e2733;
-  --color-border: #222c38;
-  --color-border-strong: #324052;
-  --color-border-subtle: #18202a;
-  --color-text-main: #f0f6fc;
-  --color-text-muted: #8b98a8;
-  --color-text-subtle: #647182;
+  --color-bg-stage: #070a0e;
+  --color-bg-base: #0b0f15;
+  --color-bg-surface: #0f141c;
+  --color-bg-elevated: #161e28;
+  --color-bg-hover: #1e2836;
+  --color-border: #1e2733;
+  --color-border-strong: #2e3b4e;
+  --color-border-subtle: #151c26;
+
+  --color-text-main: #f2f6fb;
+  --color-text-muted: #8b99ac;
+  --color-text-subtle: #5f6d80;
 
   --color-accent: #238636;
   --color-accent-hover: #2ea043;
@@ -22,7 +24,6 @@
   --color-danger: #cf2f2c;
   --color-danger-hover: #e5484d;
   --color-danger-soft: rgba(229, 72, 77, 0.12);
-  --color-warning: #d29922;
 
   --gh-level-0: #161b22;
   --gh-level-1: #0e4429;
@@ -30,28 +31,30 @@
   --gh-level-3: #26a641;
   --gh-level-4: #39d353;
 
-  --gh-preview-bg: #0b1016;
-  --gh-preview-border: #222c38;
-  --gh-preview-text: #8b98a8;
+  --gh-preview-bg: #0c1118;
+  --gh-preview-border: #212c3a;
+  --gh-preview-text: #8b99ac;
 
-  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --font-display: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 
-  --radius-sm: 5px;
+  --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
+  --radius-xl: 16px;
   --radius-full: 9999px;
 
   --cell-size: 12px;
   --cell-gap: 3px;
-  --cell-radius: 2px;
+  --cell-radius: 2.5px;
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
-  --shadow-md: 0 6px 18px rgba(0, 0, 0, 0.38);
-  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.56);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.42);
+  --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.65);
 
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   --duration-fast: 150ms;
   --duration-normal: 220ms;
 }
@@ -75,7 +78,7 @@
   --gh-level-3: #26a641;
   --gh-level-4: #39d353;
 
-  --gh-preview-bg: #0b1016;
-  --gh-preview-border: #222c38;
-  --gh-preview-text: #8b98a8;
+  --gh-preview-bg: #0c1118;
+  --gh-preview-border: #212c3a;
+  --gh-preview-text: #8b99ac;
 }

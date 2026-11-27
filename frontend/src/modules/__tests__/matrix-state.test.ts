@@ -65,4 +65,31 @@ describe('MatrixStore', () => {
     store.undo();
     expect(store.getMatrix()[2][2]).toBe(4);
   });
+
+  it('starts with empty undo history for initial matrix and syncs width and label on undo/redo', () => {
+    const initial = Array.from({ length: 7 }, () => new Array(10).fill(4) as (0 | 1 | 2 | 3 | 4)[]);
+    const store = new MatrixStore(10, initial, 'GITSTAMP');
+
+    expect(store.canUndo()).toBe(false);
+    expect(store.canRedo()).toBe(false);
+    expect(store.getLabel()).toBe('GITSTAMP');
+
+    const buildMatrix = Array.from({ length: 7 }, () => new Array(31).fill(4) as (0 | 1 | 2 | 3 | 4)[]);
+    const heartMatrix = Array.from({ length: 7 }, () => new Array(9).fill(3) as (0 | 1 | 2 | 3 | 4)[]);
+
+    store.setMatrix(buildMatrix, 'BUILD');
+    store.setMatrix(heartMatrix, 'Heart');
+
+    expect(store.getWidth()).toBe(9);
+    expect(store.getLabel()).toBe('Heart');
+
+    store.undo();
+    expect(store.getWidth()).toBe(31);
+    expect(store.getMatrix()[0].length).toBe(31);
+    expect(store.getLabel()).toBe('BUILD');
+
+    store.redo();
+    expect(store.getWidth()).toBe(9);
+    expect(store.getLabel()).toBe('Heart');
+  });
 });

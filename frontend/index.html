@@ -3,269 +3,366 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#090d11" />
+  <meta name="theme-color" content="#070a0e" />
   <title>GitStamp: GitHub Contribution Graph Art Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23238636'/><rect x='20' y='20' width='25' height='25' rx='5' fill='%2339d353'/><rect x='55' y='20' width='25' height='25' rx='5' fill='%2339d353'/><rect x='20' y='55' width='25' height='25' rx='5' fill='%2339d353'/><rect x='55' y='55' width='25' height='25' rx='5' fill='%230e4429'/></svg>" />
 </head>
 <body>
   <a href="#studio-main" class="skip-link">Skip to studio</a>
 
-  <header class="site-header">
-    <div class="brand">
-      <div class="brand-icon" aria-hidden="true">
-        <svg width="24" height="24" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect width="100" height="100" rx="20" fill="#238636"/>
-          <rect x="18" y="18" width="28" height="28" rx="6" fill="#39d353"/>
-          <rect x="54" y="18" width="28" height="28" rx="6" fill="#39d353"/>
-          <rect x="18" y="54" width="28" height="28" rx="6" fill="#39d353"/>
-          <rect x="54" y="54" width="28" height="28" rx="6" fill="#0e4429"/>
-        </svg>
-      </div>
-      <div class="brand-title" translate="no">
-        <span>GitStamp</span>
-      </div>
-      <a href="https://github.com/kbtale" target="_blank" rel="noopener noreferrer" class="author-tag">by @kbtale</a>
+  <header class="workbench-header">
+    <div class="header-left">
+      <a href="./" class="brand" aria-label="GitStamp home">
+        <span class="brand-icon" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect width="100" height="100" rx="20" fill="#238636"/>
+            <rect x="18" y="18" width="28" height="28" rx="6" fill="#39d353"/>
+            <rect x="54" y="18" width="28" height="28" rx="6" fill="#39d353"/>
+            <rect x="18" y="54" width="28" height="28" rx="6" fill="#39d353"/>
+            <rect x="54" y="54" width="28" height="28" rx="6" fill="#0e4429"/>
+          </svg>
+        </span>
+        <span class="brand-title" translate="no">GitStamp</span>
+      </a>
+      <span class="header-sep" aria-hidden="true">/</span>
+      <button type="button" class="repo-pill-btn" id="btn-open-deploy-pill" title="Configure target repository and deployment">
+        <span class="status-dot" id="header-repo-dot" aria-hidden="true"></span>
+        <span class="repo-pill-text" id="header-repo-pill-text" translate="no">gitstamp-art</span>
+      </button>
     </div>
+
     <div class="header-actions">
-      <a href="https://github.com/kbtale/gitstamp" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm repo-btn" title="View Source on GitHub">
-        <svg class="octicon" height="16" viewBox="0 0 16 16" width="16" fill="currentColor" aria-hidden="true">
+      <a href="https://github.com/kbtale/gitstamp" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm repo-btn" title="View Source on GitHub">
+        <svg class="octicon" height="15" viewBox="0 0 16 16" width="15" fill="currentColor" aria-hidden="true">
           <path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"></path>
         </svg>
-        <span class="repo-btn-label" translate="no">kbtale/gitstamp</span>
-        <span class="star-badge">★ Star</span>
+        <span class="repo-btn-label" translate="no">Star</span>
       </a>
       <div id="auth-status-container"></div>
-      <button type="button" class="btn btn-primary btn-sm" id="btn-open-auth">
-        Sign In with GitHub
+      <button type="button" class="btn btn-secondary btn-sm" id="btn-open-auth">
+        Sign In
+      </button>
+      <button type="button" class="btn btn-primary btn-sm" id="btn-open-deploy">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 19V5"></path>
+          <path d="m5 12 7-7 7 7"></path>
+        </svg>
+        <span>Deploy</span>
       </button>
     </div>
   </header>
 
-  <main class="app-container" id="studio-main">
-    <section class="hero-banner">
-      <div class="hero-text">
-        <h1>GitHub Contribution Graph Art Studio</h1>
-        <p>Turn images, pixel text, or starter presets into contribution graph artwork that stays centered on your profile automatically.</p>
+  <main class="workbench-shell" id="studio-main">
+    <h1 class="sr-only">GitStamp: GitHub Contribution Graph Art Studio</h1>
+    <aside class="inspector-panel" aria-label="Artwork inspector">
+      <div class="inspector-scroll">
+        <section class="inspector-section">
+          <div class="section-header">
+            <h2 class="section-eyebrow">Artworks &amp; Years</h2>
+            <button type="button" class="btn-inline-add" id="btn-add-artwork" title="Add another artwork layer">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 5v14"></path>
+                <path d="M5 12h14"></path>
+              </svg>
+              <span>Add</span>
+            </button>
+          </div>
+          <div class="artwork-items-list" id="artwork-items-list"></div>
+          <input type="file" id="file-input" class="file-input-hidden" accept="image/png,image/jpeg,image/svg+xml,image/webp" />
+        </section>
+
+        <section class="inspector-section">
+          <div class="section-header">
+            <h2 class="section-eyebrow" id="source-tabs-label">Source Studio</h2>
+          </div>
+          <div id="source-tabs-container" aria-labelledby="source-tabs-label"></div>
+
+          <div class="source-tab-panel" id="tab-panel-text">
+            <div class="control-group">
+              <label class="control-label" for="pixel-text-input">Live Pixel Text</label>
+              <input type="text" id="pixel-text-input" class="text-input text-input-mono" maxlength="16" value="GITSTAMP" placeholder="Type any word or handle…" autocomplete="off" spellcheck="false" />
+            </div>
+
+            <div class="control-group">
+              <div class="control-label" id="text-spacing-label">Letter Spacing</div>
+              <div id="text-spacing-container" aria-labelledby="text-spacing-label"></div>
+            </div>
+
+            <div class="control-group">
+              <div class="control-label">Quick Words</div>
+              <div class="quick-words-row" id="quick-words-row">
+                <button type="button" class="word-pill" data-word="GITSTAMP">GITSTAMP</button>
+                <button type="button" class="word-pill" data-word="HELLO">HELLO</button>
+                <button type="button" class="word-pill" data-word="HIRE ME">HIRE ME</button>
+                <button type="button" class="word-pill" data-word="BUILD">BUILD</button>
+                <button type="button" class="word-pill" data-word="2026">2026</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="source-tab-panel" id="tab-panel-presets" hidden>
+            <div class="preset-gallery" id="preset-gallery"></div>
+          </div>
+
+          <div class="source-tab-panel" id="tab-panel-image" hidden>
+            <button type="button" class="image-dropzone" id="image-dropzone">
+              <span class="dropzone-icon-wrap" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="17 8 12 3 7 8"></polyline>
+                  <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+              </span>
+              <span class="dropzone-title" id="dropzone-title">Drop or choose an image</span>
+              <span class="dropzone-sub" id="dropzone-sub">PNG, JPG, SVG, or WEBP</span>
+            </button>
+
+            <div class="image-tuning-stack">
+              <div class="control-group">
+                <div class="control-label" id="mode-control-label">Conversion Mode</div>
+                <div id="mode-control-container" aria-labelledby="mode-control-label"></div>
+              </div>
+              <div class="control-group" id="threshold-control-container"></div>
+              <div class="control-group" id="invert-control-container"></div>
+            </div>
+          </div>
+        </section>
       </div>
-      <div class="hero-shortcut-hint" aria-label="Keyboard shortcuts">Ctrl+Z Undo · Ctrl+Y Redo</div>
-    </section>
 
-    <div class="studio-grid">
-      <aside class="panel" aria-label="Artwork controls">
-        <div class="panel-title">
-          <span>Artworks</span>
-        </div>
-
-        <div class="artwork-items-list" id="artwork-items-list"></div>
-        <button type="button" class="btn-add-artwork-below" id="btn-add-artwork" style="display: none;">+ Add Artwork</button>
-        <input type="file" id="file-input" class="file-input-hidden" accept="image/png,image/jpeg,image/svg+xml,image/webp" />
-
-        <div class="sidebar-divider"></div>
-
-        <div class="control-group">
-          <label class="control-label" for="pixel-text-input">Pixel Text</label>
-          <form class="pixel-text-form" id="pixel-text-form">
-            <input type="text" id="pixel-text-input" class="text-input text-input-sm" maxlength="16" placeholder="HELLO, HIRE ME…" autocomplete="off" spellcheck="false" />
-            <button type="submit" class="btn btn-secondary btn-sm" id="btn-apply-text">Stamp</button>
-          </form>
-        </div>
-
-        <div class="control-group">
-          <div class="control-label">
-            <span>Starter Presets</span>
-          </div>
-          <div class="preset-gallery" id="preset-gallery"></div>
-        </div>
-
-        <div class="sidebar-divider"></div>
-
-        <div class="control-group">
-          <div class="control-label" id="mode-control-label">Conversion Mode</div>
-          <div id="mode-control-container" aria-labelledby="mode-control-label"></div>
-        </div>
-
-        <div class="control-group" id="threshold-control-container"></div>
-
-        <div class="control-group" id="invert-control-container"></div>
-
+      <div class="inspector-footer">
         <div class="control-group" id="width-control-container"></div>
-      </aside>
+      </div>
+    </aside>
 
-      <section class="panel" aria-label="Contribution preview and deployment">
-        <div class="panel-title">
-          <span>Live Profile Preview</span>
-          <div class="graph-stats" id="graph-dimensions-display">Artwork · 7 × 24</div>
+    <section class="canvas-stage" aria-label="Interactive contribution graph stage">
+      <div class="studio-toolbar" role="toolbar" aria-label="Canvas tools">
+        <div id="brush-palette-container"></div>
+        <span class="tools-divider" aria-hidden="true"></span>
+        <div class="tools-group" role="group" aria-label="Nudge and mirror">
+          <button type="button" class="icon-tool-btn" id="btn-nudge-left" aria-label="Nudge left" title="Nudge left">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+          </button>
+          <button type="button" class="icon-tool-btn" id="btn-nudge-up" aria-label="Nudge up" title="Nudge up">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg>
+          </button>
+          <button type="button" class="icon-tool-btn" id="btn-nudge-down" aria-label="Nudge down" title="Nudge down">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <button type="button" class="icon-tool-btn" id="btn-nudge-right" aria-label="Nudge right" title="Nudge right">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+          </button>
+          <button type="button" class="icon-tool-btn" id="btn-flip-h" aria-label="Flip horizontally" title="Flip horizontally">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18"/><path d="m8 7-5 5 5 5V7Z"/><path d="m16 7 5 5-5 5V7Z"/></svg>
+          </button>
+          <button type="button" class="icon-tool-btn" id="btn-flip-v" aria-label="Flip vertically" title="Flip vertically">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h18"/><path d="m7 8 5-5 5 5H7Z"/><path d="m7 16 5 5 5-5H7Z"/></svg>
+          </button>
+        </div>
+        <span class="tools-divider" aria-hidden="true"></span>
+        <div class="tools-group" role="group" aria-label="History and actions">
+          <button type="button" class="icon-tool-btn" id="btn-undo-grid" aria-label="Undo" title="Undo (Ctrl+Z)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+          </button>
+          <button type="button" class="icon-tool-btn" id="btn-redo-grid" aria-label="Redo" title="Redo (Ctrl+Y)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"/></svg>
+          </button>
+          <button type="button" class="icon-tool-btn" id="btn-invert-grid" aria-label="Invert shades" title="Invert shades">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3v18a9 9 0 0 0 0-18Z" fill="currentColor"/></svg>
+          </button>
+          <button type="button" class="icon-tool-btn" id="btn-clear-grid" aria-label="Clear grid" title="Clear grid">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+          </button>
+          <button type="button" class="icon-tool-btn" id="btn-export-json" aria-label="Export art.json" title="Export art.json">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </button>
+          <button type="button" class="icon-tool-btn" id="btn-import-json" aria-label="Import art.json" title="Import art.json">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          </button>
+          <input type="file" id="json-import-input" class="file-input-hidden" accept="application/json,.json" />
         </div>
 
-        <div class="tools-bar">
-          <div id="brush-palette-container"></div>
-          <div class="tools-divider" aria-hidden="true"></div>
-          <div class="tools-group" role="group" aria-label="Transform tools">
-            <button type="button" class="btn btn-secondary btn-sm btn-icon-only" id="btn-nudge-left" aria-label="Nudge left" title="Nudge left">←</button>
-            <button type="button" class="btn btn-secondary btn-sm btn-icon-only" id="btn-nudge-up" aria-label="Nudge up" title="Nudge up">↑</button>
-            <button type="button" class="btn btn-secondary btn-sm btn-icon-only" id="btn-nudge-down" aria-label="Nudge down" title="Nudge down">↓</button>
-            <button type="button" class="btn btn-secondary btn-sm btn-icon-only" id="btn-nudge-right" aria-label="Nudge right" title="Nudge right">→</button>
-            <button type="button" class="btn btn-secondary btn-sm" id="btn-flip-h" aria-label="Flip horizontally" title="Flip horizontally">Flip H</button>
-            <button type="button" class="btn btn-secondary btn-sm" id="btn-flip-v" aria-label="Flip vertically" title="Flip vertically">Flip V</button>
-          </div>
-          <div class="tools-divider" aria-hidden="true"></div>
-          <div class="tools-group" role="group" aria-label="History and file tools">
-            <button type="button" class="btn btn-secondary btn-sm" id="btn-undo-grid" title="Undo (Ctrl+Z)">Undo</button>
-            <button type="button" class="btn btn-secondary btn-sm" id="btn-redo-grid" title="Redo (Ctrl+Y)">Redo</button>
-            <button type="button" class="btn btn-secondary btn-sm" id="btn-invert-grid">Invert</button>
-            <button type="button" class="btn btn-secondary btn-sm" id="btn-clear-grid">Clear</button>
-            <button type="button" class="btn btn-secondary btn-sm" id="btn-export-json" title="Export art.json">Export</button>
-            <button type="button" class="btn btn-secondary btn-sm" id="btn-import-json" title="Import art.json">Import</button>
-            <input type="file" id="json-import-input" class="file-input-hidden" accept="application/json,.json" />
-          </div>
-          <div class="view-controls">
-            <div id="view-mode-container"></div>
-            <button type="button" class="theme-toggle-btn" id="btn-theme-toggle" aria-label="Toggle dark or light graph theme" title="Toggle graph theme">
-              <svg class="sun-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <circle cx="12" cy="12" r="4"></circle>
-                <path d="M12 2v2"></path>
-                <path d="M12 20v2"></path>
-                <path d="m4.93 4.93 1.41 1.41"></path>
-                <path d="m17.66 17.66 1.41 1.41"></path>
-                <path d="M2 12h2"></path>
-                <path d="M20 12h2"></path>
-                <path d="m6.34 17.66-1.41 1.41"></path>
-                <path d="m19.07 4.93-1.41 1.41"></path>
-              </svg>
-              <svg class="moon-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
-              </svg>
-            </button>
-          </div>
+        <div class="view-controls">
+          <div id="view-mode-container"></div>
+          <button type="button" class="theme-toggle-btn" id="btn-theme-toggle" aria-label="Toggle dark or light graph theme" title="Toggle graph theme">
+            <svg class="sun-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="4"></circle>
+              <path d="M12 2v2"></path>
+              <path d="M12 20v2"></path>
+              <path d="m4.93 4.93 1.41 1.41"></path>
+              <path d="m17.66 17.66 1.41 1.41"></path>
+              <path d="M2 12h2"></path>
+              <path d="M20 12h2"></path>
+              <path d="m6.34 17.66-1.41 1.41"></path>
+              <path d="m19.07 4.93-1.41 1.41"></path>
+            </svg>
+            <svg class="moon-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
+            </svg>
+          </button>
         </div>
+      </div>
 
-        <div class="profile-preview-card" id="graph-preview-container" data-graph-theme="dark">
-          <div class="profile-card-header">
-            <div class="profile-card-title">
-              <span id="profile-total-commits">0 contributions in the last year</span>
-            </div>
-            <div class="profile-card-actions">
-              <div class="settings-dropdown-wrapper">
-                <button type="button" class="btn-contribution-settings" id="btn-contribution-settings" aria-expanded="false" aria-haspopup="true">
-                  <span>Contribution settings</span>
-                  <span class="dropdown-caret" aria-hidden="true">▾</span>
-                </button>
-                <div class="settings-dropdown-menu" id="settings-dropdown-menu" style="display: none;">
-                  <label class="dropdown-item">
-                    <input type="checkbox" id="setting-highlight-bounds" checked />
-                    <span>Highlight artwork bounds</span>
-                  </label>
-                  <label class="dropdown-item">
-                    <input type="checkbox" id="setting-profile-contributions" checked />
-                    <span>Show profile contributions</span>
-                  </label>
-                  <label class="dropdown-item" title="Compress background activity to Level 1 so artwork shades stand out">
-                    <input type="checkbox" id="setting-flatten-background" checked />
-                    <span>Flatten background activity</span>
-                  </label>
-                  <div class="dropdown-divider"></div>
-                  <button type="button" class="dropdown-action-btn" id="setting-btn-reset-art">
-                    Clear artwork matrix
+      <div class="stage-viewport">
+        <div class="stage-frame-wrap">
+          <div class="stage-meta-bar">
+            <span class="stage-meta-pill" id="graph-dimensions-display">GITSTAMP · 7 × 45</span>
+            <span class="stage-meta-stat" id="active-cells-stat">0 active cells</span>
+          </div>
+
+          <div class="profile-preview-card" id="graph-preview-container" data-graph-theme="dark">
+            <div class="profile-card-header">
+              <div class="profile-card-title">
+                <span id="profile-total-commits">0 contributions in the last year</span>
+              </div>
+              <div class="profile-card-actions">
+                <div class="settings-dropdown-wrapper">
+                  <button type="button" class="btn-contribution-settings" id="btn-contribution-settings" aria-expanded="false" aria-haspopup="true">
+                    <span>Settings</span>
+                    <span class="dropdown-caret" aria-hidden="true">▾</span>
                   </button>
+                  <div class="settings-dropdown-menu" id="settings-dropdown-menu" style="display: none;">
+                    <label class="dropdown-item">
+                      <input type="checkbox" id="setting-highlight-bounds" checked />
+                      <span>Highlight artwork bounds</span>
+                    </label>
+                    <label class="dropdown-item">
+                      <input type="checkbox" id="setting-profile-contributions" checked />
+                      <span>Show profile contributions</span>
+                    </label>
+                    <label class="dropdown-item" title="Compress background activity to Level 1 so artwork shades stand out">
+                      <input type="checkbox" id="setting-flatten-background" checked />
+                      <span>Flatten background activity</span>
+                    </label>
+                    <div class="dropdown-divider"></div>
+                    <button type="button" class="dropdown-action-btn" id="setting-btn-reset-art">
+                      Clear artwork matrix
+                    </button>
+                  </div>
                 </div>
+                <div class="year-selector-bar" id="year-selector-container"></div>
               </div>
-              <div class="year-selector-bar" id="year-selector-container"></div>
             </div>
-          </div>
 
-          <div class="full-calendar-wrapper">
-            <div class="month-labels-row" id="month-labels-row"></div>
-            <div class="calendar-body">
-              <div class="day-labels-col" id="day-labels-col">
-                <span></span>
-                <span>Mon</span>
-                <span></span>
-                <span>Wed</span>
-                <span></span>
-                <span>Fri</span>
-                <span></span>
+            <div class="full-calendar-wrapper">
+              <div class="month-labels-row" id="month-labels-row"></div>
+              <div class="calendar-body">
+                <div class="day-labels-col" id="day-labels-col">
+                  <span></span>
+                  <span>Mon</span>
+                  <span></span>
+                  <span>Wed</span>
+                  <span></span>
+                  <span>Fri</span>
+                  <span></span>
+                </div>
+                <div class="grid-53" id="contribution-matrix" role="grid" aria-label="Contribution graph matrix"></div>
               </div>
-              <div class="grid-53" id="contribution-matrix" role="grid" aria-label="Contribution graph matrix"></div>
+            </div>
+
+            <div class="graph-legend">
+              <span>Less</span>
+              <div class="legend-square legend-0"></div>
+              <div class="legend-square legend-1"></div>
+              <div class="legend-square legend-2"></div>
+              <div class="legend-square legend-3"></div>
+              <div class="legend-square legend-4"></div>
+              <span>More</span>
             </div>
           </div>
 
-          <div class="graph-legend">
-            <span>Less</span>
-            <div class="legend-square legend-0"></div>
-            <div class="legend-square legend-1"></div>
-            <div class="legend-square legend-2"></div>
-            <div class="legend-square legend-3"></div>
-            <div class="legend-square legend-4"></div>
-            <span>More</span>
-          </div>
-        </div>
-
-        <div class="deploy-card">
-          <div class="panel-title">
-            <span>Deploy to GitHub Profile</span>
-            <span id="repo-status-badge" class="brand-badge">Public Repo</span>
-          </div>
-
-          <div class="form-group">
-            <label class="control-label" for="repo-name-input">Repository Name</label>
-            <input type="text" id="repo-name-input" class="text-input" value="gitstamp-art" placeholder="gitstamp-art…" autocomplete="off" spellcheck="false" />
-            <div class="repo-target-preview">
-              <span>Target repository: </span>
-              <a href="#" id="target-repo-link" target="_blank" rel="noopener noreferrer">https://github.com/:username/gitstamp-art</a>
+          <div class="stage-cta-bar">
+            <div class="stage-cta-copy">
+              <span class="stage-cta-dot" aria-hidden="true"></span>
+              <span id="stage-plan-summary">1 year ready to stamp. Weekly self-centering workflow included.</span>
             </div>
-          </div>
-
-          <div class="form-group">
-            <div class="control-label">Year Deployment Plan</div>
-            <div class="deploy-plan-list" id="deploy-plan-container"></div>
-            <div class="form-hint">Each assigned year is stamped with its corresponding artwork on your GitHub profile.</div>
-          </div>
-
-          <div class="deploy-actions">
-            <button type="button" class="btn btn-primary btn-lg" id="btn-deploy">
-              Deploy to My GitHub Profile
-            </button>
-            <button type="button" class="btn btn-danger btn-lg" id="btn-unstamp" title="Clear stamped commits cleanly">
-              Unstamp Art
+            <button type="button" class="btn btn-primary" id="btn-stage-deploy">
+              Deploy to GitHub Profile
             </button>
           </div>
-
-          <div class="deploy-steps" id="deploy-steps-container" style="display: none;">
-            <div class="step-item step-pending" id="step-repo">
-              <span class="step-icon" aria-hidden="true">○</span>
-              <span class="step-label">1. Create or verify public repository</span>
-            </div>
-            <div class="step-item step-pending" id="step-files">
-              <span class="step-icon" aria-hidden="true">○</span>
-              <span class="step-label">2. Push art.json, scripts/render.mjs, workflow, and README</span>
-            </div>
-            <div class="step-item step-pending" id="step-dispatch">
-              <span class="step-icon" aria-hidden="true">○</span>
-              <span class="step-label">3. Trigger immediate render workflow</span>
-            </div>
-          </div>
         </div>
-      </section>
-    </div>
+      </div>
+
+      <footer class="stage-statusbar">
+        <div class="statusbar-left">
+          <span class="kbd-hint">Click + drag to paint</span>
+          <span class="status-sep" aria-hidden="true">·</span>
+          <span class="kbd-hint"><kbd>Ctrl</kbd>+<kbd>Z</kbd> Undo</span>
+          <span class="status-sep" aria-hidden="true">·</span>
+          <span class="kbd-hint"><kbd>Ctrl</kbd>+<kbd>Y</kbd> Redo</span>
+        </div>
+        <div class="statusbar-links">
+          <a href="https://github.com/kbtale" target="_blank" rel="noopener noreferrer">@kbtale</a>
+          <a href="https://github.com/kbtale/gitstamp" target="_blank" rel="noopener noreferrer">Source</a>
+          <a href="https://github.com/kbtale/gitstamp/blob/main/README.md" target="_blank" rel="noopener noreferrer">Docs</a>
+        </div>
+      </footer>
+    </section>
   </main>
 
-  <footer class="app-footer">
-    <div class="footer-content">
-      <div class="footer-left">
-        <svg class="octicon" height="18" viewBox="0 0 16 16" width="18" fill="currentColor" aria-hidden="true">
-          <path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"></path>
-        </svg>
-        <span translate="no">GitStamp Studio</span>
-        <span class="footer-dot" aria-hidden="true">·</span>
-        <a href="https://github.com/kbtale" target="_blank" rel="noopener noreferrer">Built by @kbtale</a>
+  <div class="drawer-backdrop" id="deploy-drawer-backdrop" hidden>
+    <div class="deploy-drawer" id="deploy-drawer" role="dialog" aria-modal="true" aria-labelledby="deploy-drawer-title">
+      <div class="drawer-header">
+        <div>
+          <h2 class="drawer-title" id="deploy-drawer-title">Deploy to GitHub Profile</h2>
+          <p class="drawer-subtitle">Provisions a public repo with a weekly self-centering render workflow.</p>
+        </div>
+        <button type="button" class="icon-tool-btn" id="btn-close-deploy-drawer" aria-label="Close deploy panel">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
       </div>
-      <div class="footer-links">
-        <a href="https://github.com/kbtale/gitstamp" target="_blank" rel="noopener noreferrer">Source Code</a>
-        <a href="https://github.com/kbtale/gitstamp/blob/main/README.md" target="_blank" rel="noopener noreferrer">Documentation</a>
-        <a href="https://github.com/kbtale/gitstamp/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+
+      <div class="drawer-body">
+        <div class="form-group">
+          <div class="control-label">
+            <label for="repo-name-input">Repository Name</label>
+            <span id="repo-status-badge" class="brand-badge">Public Repo</span>
+          </div>
+          <input type="text" id="repo-name-input" class="text-input text-input-mono" value="gitstamp-art" placeholder="gitstamp-art…" autocomplete="off" spellcheck="false" />
+          <div class="repo-target-preview">
+            <a href="#" id="target-repo-link" target="_blank" rel="noopener noreferrer">https://github.com/:username/gitstamp-art</a>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <div class="control-label">Year Deployment Plan</div>
+          <div class="deploy-plan-list" id="deploy-plan-container"></div>
+          <div class="form-hint">Click any assigned year to jump straight to its preview.</div>
+        </div>
+
+        <button type="button" class="btn btn-primary btn-lg drawer-primary-cta" id="btn-deploy">
+          Deploy to My GitHub Profile
+        </button>
+
+        <div class="deploy-steps" id="deploy-steps-container" style="display: none;">
+          <div class="step-item step-pending" id="step-repo">
+            <span class="step-icon" aria-hidden="true">○</span>
+            <span class="step-label">1. Create or verify public repository</span>
+          </div>
+          <div class="step-item step-pending" id="step-files">
+            <span class="step-icon" aria-hidden="true">○</span>
+            <span class="step-label">2. Push art.json, scripts/render.mjs, workflow, and README</span>
+          </div>
+          <div class="step-item step-pending" id="step-dispatch">
+            <span class="step-icon" aria-hidden="true">○</span>
+            <span class="step-label">3. Trigger immediate render workflow</span>
+          </div>
+        </div>
+
+        <div class="drawer-danger-zone">
+          <div class="danger-zone-copy">
+            <div class="danger-zone-title">Remove Stamped Art</div>
+            <p class="form-hint">Clears art.json and runs an orphan sync so stamped commits disappear from your graph.</p>
+          </div>
+          <button type="button" class="btn btn-danger btn-sm" id="btn-unstamp">
+            Unstamp Art
+          </button>
+        </div>
       </div>
     </div>
-  </footer>
+  </div>
 
   <script type="module" src="/src/main.ts"></script>
 </body>
