@@ -27,7 +27,7 @@ export function isAppInstallationError(message: string): boolean {
 }
 
 export function getAppInstallUrl(appSlug: string): string {
-  const slug = appSlug.trim() || 'gitstamp';
+  const slug = appSlug.trim() || 'gitstamp-art';
   return `https://github.com/apps/${encodeURIComponent(slug)}/installations/new`;
 }
 
