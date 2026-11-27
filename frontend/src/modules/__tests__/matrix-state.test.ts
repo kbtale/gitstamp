@@ -46,4 +46,23 @@ describe('MatrixStore', () => {
     store.clear();
     expect(store.getMatrix().flat().every((v) => v === 0)).toBe(true);
   });
+
+  it('supports directional nudge and horizontal/vertical mirror flips with undo', () => {
+    const store = new MatrixStore(4);
+    store.setCell(0, 0, 4);
+    store.commitPaint();
+
+    store.nudge(1, 2);
+    expect(store.getMatrix()[2][1]).toBe(4);
+    expect(store.getMatrix()[0][0]).toBe(0);
+
+    store.flipHorizontal();
+    expect(store.getMatrix()[2][2]).toBe(4);
+
+    store.flipVertical();
+    expect(store.getMatrix()[4][2]).toBe(4);
+
+    store.undo();
+    expect(store.getMatrix()[2][2]).toBe(4);
+  });
 });
