@@ -1,4 +1,5 @@
 import './styles/main.css';
+import { inject } from '@vercel/analytics';
 import { ArtworkItem, ContributionLevel, ProcessingMode, AppTheme, UserProfile } from './types';
 import { MatrixStore } from './modules/matrix-state';
 import { loadImageFromFile, processImageToMatrix } from './modules/image-processor';
@@ -31,6 +32,9 @@ import {
   createToggleSwitch,
   createBrushPalette
 } from './modules/ui-components';
+
+// Initialize Vercel Analytics
+inject();
 
 const DEFAULT_CLIENT_ID = (import.meta as any).env?.VITE_GITHUB_APP_CLIENT_ID || 'Iv23liETnS8etdqB3qHt';
 const DEFAULT_APP_SLUG = (import.meta as any).env?.VITE_GITHUB_APP_SLUG || 'gitstamp';
