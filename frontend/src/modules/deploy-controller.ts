@@ -31,6 +31,23 @@ export function getAppInstallUrl(appSlug: string): string {
   return `https://github.com/apps/${encodeURIComponent(slug)}/installations/new`;
 }
 
+export function getMissingAppPermissions(permissions?: Record<string, string>): string[] {
+  if (!permissions) {
+    return [];
+  }
+  const missing: string[] = [];
+  if (permissions.administration !== 'write') {
+    missing.push('Administration (Read and write)');
+  }
+  if (permissions.contents !== 'write') {
+    missing.push('Contents (Read and write)');
+  }
+  if (permissions.workflows !== 'write') {
+    missing.push('Workflows (Read and write)');
+  }
+  return missing;
+}
+
 export function buildDeployArtPayload(params: {
   user: UserProfile;
   sortedYears: number[];

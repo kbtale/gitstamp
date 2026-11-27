@@ -12,6 +12,7 @@ import {
   clearAuth
 } from './modules/auth-pkce';
 import {
+  AppInstallationStatus,
   checkAppInstallation,
   fetchExistingArt,
   fetchUserContributions
@@ -31,6 +32,7 @@ import {
   buildDeployArtPayload,
   deployArtworkToGithub,
   getAppInstallUrl,
+  getMissingAppPermissions,
   isAppInstallationError,
   StepStatus,
   unstampArtworkFromGithub
@@ -48,7 +50,8 @@ type SourceTab = 'text' | 'presets' | 'image';
 let activeClientId: string = DEFAULT_CLIENT_ID;
 let activeAppSlug: string = DEFAULT_APP_SLUG;
 let currentUser: UserProfile | null = getStoredUser();
-let isAppInstalled: boolean | null = null;
+let appInstallStatus: AppInstallationStatus | null = null;
+let isCheckingInstallation: boolean = false;
 let currentTheme: AppTheme = 'dark';
 let currentViewMode: 'profile' | 'editor' = 'profile';
 let activeSourceTab: SourceTab = 'text';
@@ -138,6 +141,7 @@ const deployPlanContainer = document.getElementById('deploy-plan-container') as 
 const repoNameInput = document.getElementById('repo-name-input') as HTMLInputElement;
 const repoStatusBadge = document.getElementById('repo-status-badge') as HTMLElement;
 const appInstallBanner = document.getElementById('app-install-banner') as HTMLElement;
+const appInstallTitle = document.getElementById('app-install-title') as HTMLElement;
 const appInstallMessage = document.getElementById('app-install-message') as HTMLElement;
 const btnInstallGithubApp = document.getElementById('btn-install-github-app') as HTMLButtonElement;
 const btnDeploy = document.getElementById('btn-deploy') as HTMLButtonElement;
@@ -1017,43 +1021,129 @@ function restoreStudioDraft(): boolean {
   }
 }
 
+function openExternalTab(url: string) {
+  const opened = window.open(url, '_blank', 'noopener,noreferrer');
+  if (!opened) {
+    window.location.href = url;
+  }
+}
+
+function getAppActionUrl(): string {
+  if (appInstallStatus?.installed && appInstallStatus.htmlUrl) {
+    return appInstallStatus.htmlUrl;
+  }
+  return getAppInstallUrl(activeAppSlug);
+}
+
 function updateAppInstallBanner() {
-  if (!currentUser || isAppInstalled !== false) {
+  if (!currentUser || !appInstallStatus) {
     appInstallBanner.hidden = true;
     return;
   }
-  appInstallMessage.textContent = `Install the GitStamp GitHub App on @${currentUser.login} so it can create and update your art repository.`;
-  appInstallBanner.hidden = false;
-}
 
-async function refreshAppInstallationStatus() {
-  const token = getStoredToken();
-  if (!currentUser || !token) {
-    isAppInstalled = null;
-    updateAppInstallBanner();
+  if (!appInstallStatus.installed) {
+    appInstallTitle.textContent = 'GitHub App setup required';
+    appInstallMessage.textContent = `Install the GitStamp GitHub App on @${currentUser.login} so it can create and update your art repository.`;
+    btnInstallGithubApp.textContent = 'Install GitHub App';
+    appInstallBanner.hidden = false;
     return;
   }
-  isAppInstalled = await checkAppInstallation(token, currentUser.login);
-  updateAppInstallBanner();
+
+  const missing = getMissingAppPermissions(appInstallStatus.permissions);
+  if (missing.length > 0) {
+    appInstallTitle.textContent = 'GitHub App permissions needed';
+    appInstallMessage.textContent = `Enable ${missing.join(', ')} on the GitStamp GitHub App, accept the permission update on GitHub, then sign out and sign back in.`;
+    btnInstallGithubApp.textContent = 'Manage GitHub App';
+    appInstallBanner.hidden = false;
+    return;
+  }
+
+  appInstallBanner.hidden = true;
 }
 
-async function promptInstallGithubApp(reason?: string): Promise<boolean> {
-  const repoName = repoNameInput.value.trim() || 'gitstamp-art';
-  const username = currentUser ? `@${currentUser.login}` : 'your GitHub account';
-  const confirmed = await showConfirmDialog({
-    title: 'Install GitStamp GitHub App',
-    message:
-      reason ||
-      `GitStamp needs the GitHub App installed on ${username} to create and update ${repoName}. Your current artwork will be saved while you authorize on GitHub.`,
-    confirmLabel: 'Install GitHub App',
-    cancelLabel: 'Not Now'
-  });
-
-  if (confirmed) {
-    saveStudioDraft();
-    window.location.href = getAppInstallUrl(activeAppSlug);
+async function refreshAppInstallationStatus(announceConnected: boolean = false): Promise<AppInstallationStatus | null> {
+  const token = getStoredToken();
+  if (!currentUser || !token) {
+    appInstallStatus = null;
+    updateAppInstallBanner();
+    return null;
   }
-  return confirmed;
+  if (isCheckingInstallation) {
+    return appInstallStatus;
+  }
+  isCheckingInstallation = true;
+  const wasUninstalled = appInstallStatus?.installed === false;
+  try {
+    appInstallStatus = await checkAppInstallation(token, currentUser.login);
+    updateAppInstallBanner();
+    if (announceConnected && wasUninstalled && appInstallStatus?.installed) {
+      showToast('GitStamp GitHub App detected. Ready to deploy.', 'success', 3500);
+    }
+    return appInstallStatus;
+  } finally {
+    isCheckingInstallation = false;
+  }
+}
+
+async function promptInstallOrFixApp(repoName: string): Promise<void> {
+  const status = await refreshAppInstallationStatus();
+  const username = currentUser ? `@${currentUser.login}` : 'your GitHub account';
+
+  if (!status || !status.installed) {
+    const confirmed = await showConfirmDialog({
+      title: 'Install GitStamp GitHub App',
+      message: `Install the GitStamp GitHub App on ${username} so it can create and update ${repoName}. It opens in a new tab and this studio will detect it when you return.`,
+      confirmLabel: 'Install in New Tab',
+      cancelLabel: 'Not Now'
+    });
+    if (confirmed) {
+      saveStudioDraft();
+      openExternalTab(getAppInstallUrl(activeAppSlug));
+    }
+    return;
+  }
+
+  const missing = getMissingAppPermissions(status.permissions);
+  if (missing.length > 0) {
+    const confirmed = await showConfirmDialog({
+      title: 'Update GitHub App Permissions',
+      message: `The GitStamp GitHub App is installed on ${username}, but is missing: ${missing.join(', ')}. Update permissions on GitHub, then sign out and sign back in.`,
+      confirmLabel: 'Open App Settings',
+      cancelLabel: 'Cancel'
+    });
+    if (confirmed) {
+      openExternalTab(getAppActionUrl());
+    }
+    return;
+  }
+
+  if (status.repositorySelection === 'selected') {
+    const confirmed = await showConfirmDialog({
+      title: 'Grant Repository Access',
+      message: `The GitStamp GitHub App is installed on ${username} for selected repositories only. Switch access to All repositories (or add ${repoName}) in GitHub, then click Deploy again.`,
+      confirmLabel: 'Manage App Access',
+      cancelLabel: 'Cancel'
+    });
+    if (confirmed) {
+      openExternalTab(getAppActionUrl());
+    }
+    return;
+  }
+
+  const reauth = await showConfirmDialog({
+    title: 'Refresh GitHub Authorization',
+    message: `The GitStamp GitHub App is already installed on ${username}, but GitHub rejected access to ${repoName}. Re-sign in to refresh your permissions token (or verify Administration: Read and write is enabled on the GitHub App).`,
+    confirmLabel: 'Re-sign In with GitHub',
+    cancelLabel: 'Cancel'
+  });
+  if (reauth) {
+    saveStudioDraft();
+    const redirectUri = window.location.origin + window.location.pathname;
+    await initiatePkceLogin({
+      clientId: activeClientId,
+      redirectUri
+    });
+  }
 }
 
 function updateTargetRepoLink() {
@@ -1228,7 +1318,7 @@ function updateAuthDisplay() {
     repoStatusBadge.textContent = 'Public Repo';
     repoStatusBadge.classList.remove('is-connected');
     headerRepoDot.classList.remove('is-online');
-    isAppInstalled = null;
+    appInstallStatus = null;
     updateAppInstallBanner();
     userProfileCalendar = null;
     userTotalContributions = null;
@@ -1438,7 +1528,23 @@ repoNameInput.addEventListener('input', updateTargetRepoLink);
 
 btnInstallGithubApp.addEventListener('click', () => {
   saveStudioDraft();
-  window.location.href = getAppInstallUrl(activeAppSlug);
+  openExternalTab(getAppActionUrl());
+});
+
+window.addEventListener('focus', () => {
+  if (currentUser && (!appInstallStatus || !appInstallStatus.installed || getMissingAppPermissions(appInstallStatus.permissions).length > 0)) {
+    refreshAppInstallationStatus(true);
+  }
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (
+    document.visibilityState === 'visible' &&
+    currentUser &&
+    (!appInstallStatus || !appInstallStatus.installed || getMissingAppPermissions(appInstallStatus.permissions).length > 0)
+  ) {
+    refreshAppInstallationStatus(true);
+  }
 });
 
 btnOpenAuth.addEventListener('click', async () => {
@@ -1462,9 +1568,14 @@ btnDeploy.addEventListener('click', async () => {
     return;
   }
 
-  if (isAppInstalled === false) {
-    await promptInstallGithubApp();
-    return;
+  const repoName = repoNameInput.value.trim() || 'gitstamp-art';
+
+  if (appInstallStatus?.installed === false) {
+    const freshStatus = await refreshAppInstallationStatus();
+    if (freshStatus?.installed === false) {
+      await promptInstallOrFixApp(repoName);
+      return;
+    }
   }
 
   const activeItem = getActiveArtwork();
@@ -1476,7 +1587,6 @@ btnDeploy.addEventListener('click', async () => {
     return;
   }
 
-  const repoName = repoNameInput.value.trim() || 'gitstamp-art';
   deployStepsContainer.style.display = 'flex';
   btnDeploy.disabled = true;
   btnUnstamp.disabled = true;
@@ -1501,8 +1611,7 @@ btnDeploy.addEventListener('click', async () => {
       callbacks: { onStep: setStepStatus }
     });
 
-    isAppInstalled = true;
-    updateAppInstallBanner();
+    await refreshAppInstallationStatus();
     showToast(`Deployed to @${currentUser.login}/${repoName}. Render workflow running.`, 'success', 5500);
   } catch (err: any) {
     const msg = err.message || String(err);
@@ -1514,11 +1623,7 @@ btnDeploy.addEventListener('click', async () => {
       setStepStatus('dispatch', 'error', `3. Workflow dispatch failed: ${msg}`);
     }
     if (isAppInstallationError(msg)) {
-      isAppInstalled = false;
-      updateAppInstallBanner();
-      await promptInstallGithubApp(
-        `GitStamp does not have permission to access @${currentUser.login}/${repoName} yet. Install or grant repository access to the GitStamp GitHub App, then return here to deploy.`
-      );
+      await promptInstallOrFixApp(repoName);
     } else {
       showToast(`Deployment failed: ${msg}`, 'error', 6000);
     }
@@ -1574,11 +1679,7 @@ btnUnstamp.addEventListener('click', async () => {
       setStepStatus('dispatch', 'error', `3. Workflow dispatch failed: ${msg}`);
     }
     if (isAppInstallationError(msg)) {
-      isAppInstalled = false;
-      updateAppInstallBanner();
-      await promptInstallGithubApp(
-        `GitStamp needs permission on @${currentUser.login}/${repoName} to unstamp it. Install or update the GitStamp GitHub App access, then return here.`
-      );
+      await promptInstallOrFixApp(repoName);
     } else {
       showToast(`Unstamp failed: ${msg}`, 'error', 6000);
     }

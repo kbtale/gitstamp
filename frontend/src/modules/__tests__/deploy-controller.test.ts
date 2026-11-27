@@ -3,6 +3,7 @@ import {
   buildDeployArtPayload,
   buildUnstampArtPayload,
   getAppInstallUrl,
+  getMissingAppPermissions,
   isAppInstallationError
 } from '../deploy-controller';
 import { ArtworkItem, ContributionLevel, UserProfile } from '../../types';
@@ -68,5 +69,19 @@ describe('deploy-controller payload builders', () => {
 
     expect(getAppInstallUrl('gitstamp-art')).toBe('https://github.com/apps/gitstamp-art/installations/new');
     expect(getAppInstallUrl('')).toBe('https://github.com/apps/gitstamp-art/installations/new');
+
+    expect(
+      getMissingAppPermissions({
+        administration: 'write',
+        contents: 'write',
+        workflows: 'write'
+      })
+    ).toEqual([]);
+
+    expect(
+      getMissingAppPermissions({
+        contents: 'write'
+      })
+    ).toEqual(['Administration (Read and write)', 'Workflows (Read and write)']);
   });
 });
