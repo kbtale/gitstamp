@@ -15,6 +15,22 @@ export interface DeployCallbacks {
   onStep: (step: 'repo' | 'files' | 'dispatch', status: StepStatus, text?: string) => void;
 }
 
+export function isAppInstallationError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes('integration') ||
+    lower.includes('403') ||
+    lower.includes('forbidden') ||
+    lower.includes('not found') ||
+    lower.includes('must have admin rights')
+  );
+}
+
+export function getAppInstallUrl(appSlug: string): string {
+  const slug = appSlug.trim() || 'gitstamp';
+  return `https://github.com/apps/${encodeURIComponent(slug)}/installations/new`;
+}
+
 export function buildDeployArtPayload(params: {
   user: UserProfile;
   sortedYears: number[];

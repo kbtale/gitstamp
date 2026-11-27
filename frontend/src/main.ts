@@ -11,7 +11,11 @@ import {
   getStoredUser,
   clearAuth
 } from './modules/auth-pkce';
-import { fetchExistingArt, fetchUserContributions } from './modules/github-api';
+import {
+  checkAppInstallation,
+  fetchExistingArt,
+  fetchUserContributions
+} from './modules/github-api';
 import {
   createSegmentedControl,
   createSlider,
@@ -26,6 +30,8 @@ import { showConfirmDialog } from './modules/confirm-dialog';
 import {
   buildDeployArtPayload,
   deployArtworkToGithub,
+  getAppInstallUrl,
+  isAppInstallationError,
   StepStatus,
   unstampArtworkFromGithub
 } from './modules/deploy-controller';
@@ -35,12 +41,14 @@ inject();
 
 const DEFAULT_CLIENT_ID = (import.meta as any).env?.VITE_GITHUB_APP_CLIENT_ID || 'Iv23liETnS8etdqB3qHt';
 const DEFAULT_APP_SLUG = (import.meta as any).env?.VITE_GITHUB_APP_SLUG || 'gitstamp';
+const STUDIO_DRAFT_KEY = 'gitstamp_studio_draft_v1';
 
 type SourceTab = 'text' | 'presets' | 'image';
 
 let activeClientId: string = DEFAULT_CLIENT_ID;
 let activeAppSlug: string = DEFAULT_APP_SLUG;
 let currentUser: UserProfile | null = getStoredUser();
+let isAppInstalled: boolean | null = null;
 let currentTheme: AppTheme = 'dark';
 let currentViewMode: 'profile' | 'editor' = 'profile';
 let activeSourceTab: SourceTab = 'text';
@@ -129,6 +137,9 @@ const btnCloseDeployDrawer = document.getElementById('btn-close-deploy-drawer') 
 const deployPlanContainer = document.getElementById('deploy-plan-container') as HTMLElement;
 const repoNameInput = document.getElementById('repo-name-input') as HTMLInputElement;
 const repoStatusBadge = document.getElementById('repo-status-badge') as HTMLElement;
+const appInstallBanner = document.getElementById('app-install-banner') as HTMLElement;
+const appInstallMessage = document.getElementById('app-install-message') as HTMLElement;
+const btnInstallGithubApp = document.getElementById('btn-install-github-app') as HTMLButtonElement;
 const btnDeploy = document.getElementById('btn-deploy') as HTMLButtonElement;
 const btnUnstamp = document.getElementById('btn-unstamp') as HTMLButtonElement;
 const deployStepsContainer = document.getElementById('deploy-steps-container') as HTMLElement;
@@ -937,6 +948,114 @@ function setStepStatus(step: 'repo' | 'files' | 'dispatch', status: StepStatus, 
   }
 }
 
+function saveStudioDraft() {
+  try {
+    const active = getActiveArtwork();
+    active.matrix = matrixStore.getMatrix();
+    active.width = active.matrix[0]?.length || active.width;
+    const payload = {
+      repoName: repoNameInput.value.trim() || 'gitstamp-art',
+      activePreviewYear,
+      activeIndex: Math.max(0, artworkItems.findIndex((a) => a.id === activeArtworkId)),
+      items: artworkItems.map((item) => ({
+        name: item.name,
+        mode: item.mode,
+        matrix: item.matrix,
+        years: Array.from(item.years)
+      }))
+    };
+    sessionStorage.setItem(STUDIO_DRAFT_KEY, JSON.stringify(payload));
+  } catch {}
+}
+
+function restoreStudioDraft(): boolean {
+  try {
+    const raw = sessionStorage.getItem(STUDIO_DRAFT_KEY);
+    if (!raw) {
+      return false;
+    }
+    sessionStorage.removeItem(STUDIO_DRAFT_KEY);
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.items) || parsed.items.length === 0) {
+      return false;
+    }
+    const restored: ArtworkItem[] = [];
+    artworkCounter = 1;
+    for (const entry of parsed.items) {
+      if (!Array.isArray(entry.matrix) || entry.matrix.length !== 7) {
+        continue;
+      }
+      const years = Array.isArray(entry.years)
+        ? entry.years.map(Number).filter((y: number) => Number.isFinite(y))
+        : [];
+      const item = createArtworkItem(years, typeof entry.name === 'string' ? entry.name : undefined, entry.matrix);
+      if (entry.mode === 'grayscale' || entry.mode === 'bicolor' || entry.mode === 'auto') {
+        item.mode = entry.mode;
+      }
+      restored.push(item);
+    }
+    if (restored.length === 0) {
+      return false;
+    }
+    artworkItems = restored;
+    const idx = Number.isInteger(parsed.activeIndex) && parsed.activeIndex >= 0 && parsed.activeIndex < restored.length
+      ? parsed.activeIndex
+      : 0;
+    activeArtworkId = restored[idx].id;
+    if (Number.isFinite(parsed.activePreviewYear)) {
+      activePreviewYear = parsed.activePreviewYear;
+    }
+    if (typeof parsed.repoName === 'string' && parsed.repoName.trim()) {
+      repoNameInput.value = parsed.repoName.trim();
+    }
+    isSyncingMatrix = true;
+    matrixStore.reset(restored[idx].matrix, restored[idx].name);
+    isSyncingMatrix = false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function updateAppInstallBanner() {
+  if (!currentUser || isAppInstalled !== false) {
+    appInstallBanner.hidden = true;
+    return;
+  }
+  appInstallMessage.textContent = `Install the GitStamp GitHub App on @${currentUser.login} so it can create and update your art repository.`;
+  appInstallBanner.hidden = false;
+}
+
+async function refreshAppInstallationStatus() {
+  const token = getStoredToken();
+  if (!currentUser || !token) {
+    isAppInstalled = null;
+    updateAppInstallBanner();
+    return;
+  }
+  isAppInstalled = await checkAppInstallation(token, currentUser.login);
+  updateAppInstallBanner();
+}
+
+async function promptInstallGithubApp(reason?: string): Promise<boolean> {
+  const repoName = repoNameInput.value.trim() || 'gitstamp-art';
+  const username = currentUser ? `@${currentUser.login}` : 'your GitHub account';
+  const confirmed = await showConfirmDialog({
+    title: 'Install GitStamp GitHub App',
+    message:
+      reason ||
+      `GitStamp needs the GitHub App installed on ${username} to create and update ${repoName}. Your current artwork will be saved while you authorize on GitHub.`,
+    confirmLabel: 'Install GitHub App',
+    cancelLabel: 'Not Now'
+  });
+
+  if (confirmed) {
+    saveStudioDraft();
+    window.location.href = getAppInstallUrl(activeAppSlug);
+  }
+  return confirmed;
+}
+
 function updateTargetRepoLink() {
   const repoName = repoNameInput.value.trim() || 'gitstamp-art';
   const username = currentUser ? currentUser.login : ':username';
@@ -1100,6 +1219,7 @@ function updateAuthDisplay() {
       renderCurrentView(matrixStore.getMatrix());
     });
     checkExistingUserRepo();
+    refreshAppInstallationStatus();
     updateTargetRepoLink();
     loadUserContributions();
   } else {
@@ -1108,6 +1228,8 @@ function updateAuthDisplay() {
     repoStatusBadge.textContent = 'Public Repo';
     repoStatusBadge.classList.remove('is-connected');
     headerRepoDot.classList.remove('is-online');
+    isAppInstalled = null;
+    updateAppInstallBanner();
     userProfileCalendar = null;
     userTotalContributions = null;
     yearContributionsCache.clear();
@@ -1314,7 +1436,13 @@ settingBtnResetArt.addEventListener('click', () => {
 
 repoNameInput.addEventListener('input', updateTargetRepoLink);
 
+btnInstallGithubApp.addEventListener('click', () => {
+  saveStudioDraft();
+  window.location.href = getAppInstallUrl(activeAppSlug);
+});
+
 btnOpenAuth.addEventListener('click', async () => {
+  saveStudioDraft();
   const redirectUri = window.location.origin + window.location.pathname;
   await initiatePkceLogin({
     clientId: activeClientId,
@@ -1325,11 +1453,17 @@ btnOpenAuth.addEventListener('click', async () => {
 btnDeploy.addEventListener('click', async () => {
   const token = getStoredToken();
   if (!currentUser || !token) {
+    saveStudioDraft();
     const redirectUri = window.location.origin + window.location.pathname;
     await initiatePkceLogin({
       clientId: activeClientId,
       redirectUri
     });
+    return;
+  }
+
+  if (isAppInstalled === false) {
+    await promptInstallGithubApp();
     return;
   }
 
@@ -1367,20 +1501,26 @@ btnDeploy.addEventListener('click', async () => {
       callbacks: { onStep: setStepStatus }
     });
 
+    isAppInstalled = true;
+    updateAppInstallBanner();
     showToast(`Deployed to @${currentUser.login}/${repoName}. Render workflow running.`, 'success', 5500);
   } catch (err: any) {
     const msg = err.message || String(err);
-    if (msg.includes('integration') || msg.includes('403') || msg.includes('Not Found')) {
-      showToast(`Install the GitStamp GitHub App at github.com/apps/${activeAppSlug}/installations/new`, 'error', 7000);
-    } else {
-      showToast(`Deployment failed: ${msg}`, 'error', 6000);
-    }
     if (stepRepo.className.includes('running')) {
       setStepStatus('repo', 'error', `1. Repository failed: ${msg}`);
     } else if (stepFiles.className.includes('running')) {
       setStepStatus('files', 'error', `2. File sync failed: ${msg}`);
     } else {
       setStepStatus('dispatch', 'error', `3. Workflow dispatch failed: ${msg}`);
+    }
+    if (isAppInstallationError(msg)) {
+      isAppInstalled = false;
+      updateAppInstallBanner();
+      await promptInstallGithubApp(
+        `GitStamp does not have permission to access @${currentUser.login}/${repoName} yet. Install or grant repository access to the GitStamp GitHub App, then return here to deploy.`
+      );
+    } else {
+      showToast(`Deployment failed: ${msg}`, 'error', 6000);
     }
   } finally {
     btnDeploy.disabled = getAllAssignedYears().length === 0;
@@ -1426,13 +1566,21 @@ btnUnstamp.addEventListener('click', async () => {
     showToast(`Unstamp triggered on @${currentUser.login}/${repoName}`, 'success', 5500);
   } catch (err: any) {
     const msg = err.message || String(err);
-    showToast(`Unstamp failed: ${msg}`, 'error', 6000);
     if (stepRepo.className.includes('running')) {
       setStepStatus('repo', 'error', `1. Repository check failed: ${msg}`);
     } else if (stepFiles.className.includes('running')) {
       setStepStatus('files', 'error', `2. Clear failed: ${msg}`);
     } else {
       setStepStatus('dispatch', 'error', `3. Workflow dispatch failed: ${msg}`);
+    }
+    if (isAppInstallationError(msg)) {
+      isAppInstalled = false;
+      updateAppInstallBanner();
+      await promptInstallGithubApp(
+        `GitStamp needs permission on @${currentUser.login}/${repoName} to unstamp it. Install or update the GitStamp GitHub App access, then return here.`
+      );
+    } else {
+      showToast(`Unstamp failed: ${msg}`, 'error', 6000);
     }
   } finally {
     btnDeploy.disabled = getAllAssignedYears().length === 0;
@@ -1467,6 +1615,10 @@ window.addEventListener('gitstamp:auth-expired', () => {
 });
 
 async function init() {
+  const restoredDraft = restoreStudioDraft();
+  if (restoredDraft) {
+    setAvailableYears();
+  }
   switchSourceTab(activeSourceTab);
   syncSidebarToActiveArtwork();
   renderArtworkItemsList();
@@ -1480,7 +1632,9 @@ async function init() {
 
   const urlParams = new URLSearchParams(window.location.search);
   const setupAction = urlParams.get('setup_action');
+  const returnedFromAppInstall = setupAction === 'install' || setupAction === 'update';
   if (setupAction === 'install' && !getStoredToken()) {
+    saveStudioDraft();
     const redirectUri = window.location.origin + window.location.pathname;
     await initiatePkceLogin({
       clientId: activeClientId,
@@ -1513,6 +1667,14 @@ async function init() {
   }
 
   updateAuthDisplay();
+
+  if (returnedFromAppInstall) {
+    window.history.replaceState({}, document.title, window.location.pathname);
+    if (currentUser) {
+      openDeployDrawer();
+      showToast('GitStamp GitHub App connected. Ready to deploy.', 'success', 4500);
+    }
+  }
 }
 
 init();

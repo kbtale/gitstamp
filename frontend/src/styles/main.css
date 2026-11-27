@@ -1567,6 +1567,36 @@ input:checked + .slider-knob::before {
   width: 100%;
 }
 
+.app-install-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(210, 153, 34, 0.38);
+  background-color: rgba(210, 153, 34, 0.09);
+}
+
+.app-install-banner[hidden] {
+  display: none;
+}
+
+.app-install-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.app-install-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #e3b341;
+}
+
+.app-install-banner .btn {
+  align-self: flex-start;
+}
+
 .drawer-danger-zone {
   margin-top: auto;
   padding-top: 1rem;
