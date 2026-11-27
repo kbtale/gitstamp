@@ -64,17 +64,39 @@ describe('github-api auth and installation checks', () => {
     expect((window.dispatchEvent as any)).toHaveBeenCalledTimes(1);
   });
 
-  it('detects whether the GitStamp GitHub App is installed for the user account', async () => {
+  it('detects GitHub App installation metadata for the user account', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => ({
         total_count: 1,
-        installations: [{ id: 123, account: { login: 'kbtale' } }]
+        installations: [
+          {
+            id: 123,
+            account: { login: 'kbtale' },
+            repository_selection: 'all',
+            html_url: 'https://github.com/settings/installations/123',
+            permissions: {
+              administration: 'write',
+              contents: 'write',
+              workflows: 'write'
+            }
+          }
+        ]
       })
     } as Response);
 
-    await expect(checkAppInstallation('ghu_token', 'kbtale')).resolves.toBe(true);
+    await expect(checkAppInstallation('ghu_token', 'kbtale')).resolves.toEqual({
+      installed: true,
+      installationId: 123,
+      repositorySelection: 'all',
+      htmlUrl: 'https://github.com/settings/installations/123',
+      permissions: {
+        administration: 'write',
+        contents: 'write',
+        workflows: 'write'
+      }
+    });
 
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -85,7 +107,9 @@ describe('github-api auth and installation checks', () => {
       })
     } as Response);
 
-    await expect(checkAppInstallation('ghu_token', 'kbtale')).resolves.toBe(false);
+    await expect(checkAppInstallation('ghu_token', 'kbtale')).resolves.toEqual({
+      installed: false
+    });
 
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: false,

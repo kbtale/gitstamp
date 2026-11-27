@@ -351,10 +351,18 @@ export async function fetchUserContributions(
   }
 }
 
+export interface AppInstallationStatus {
+  installed: boolean;
+  installationId?: number;
+  repositorySelection?: 'all' | 'selected';
+  htmlUrl?: string;
+  permissions?: Record<string, string>;
+}
+
 export async function checkAppInstallation(
   token: string,
   username: string
-): Promise<boolean | null> {
+): Promise<AppInstallationStatus | null> {
   try {
     const res = await fetch('https://api.github.com/user/installations', {
       headers: {
@@ -375,11 +383,29 @@ export async function checkAppInstallation(
 
     const data = await res.json();
     const installations = Array.isArray(data?.installations) ? data.installations : [];
-    return installations.some(
+    const match = installations.find(
       (inst: { account?: { login?: string } }) =>
         typeof inst?.account?.login === 'string' &&
         inst.account.login.toLowerCase() === username.toLowerCase()
     );
+
+    if (!match) {
+      return { installed: false };
+    }
+
+    return {
+      installed: true,
+      installationId: typeof match.id === 'number' ? match.id : undefined,
+      repositorySelection:
+        match.repository_selection === 'all' || match.repository_selection === 'selected'
+          ? match.repository_selection
+          : undefined,
+      htmlUrl: typeof match.html_url === 'string' ? match.html_url : undefined,
+      permissions:
+        match.permissions && typeof match.permissions === 'object'
+          ? (match.permissions as Record<string, string>)
+          : undefined
+    };
   } catch {
     return null;
   }
