@@ -40,7 +40,7 @@ import { renderContributionPreview } from './modules/preview-renderer';
 inject();
 
 const DEFAULT_CLIENT_ID = (import.meta as any).env?.VITE_GITHUB_APP_CLIENT_ID || 'Iv23liETnS8etdqB3qHt';
-const DEFAULT_APP_SLUG = (import.meta as any).env?.VITE_GITHUB_APP_SLUG || 'gitstamp';
+const DEFAULT_APP_SLUG = (import.meta as any).env?.VITE_GITHUB_APP_SLUG || 'gitstamp-art';
 const STUDIO_DRAFT_KEY = 'gitstamp_studio_draft_v1';
 
 type SourceTab = 'text' | 'presets' | 'image';

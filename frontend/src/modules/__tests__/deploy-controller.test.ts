@@ -66,7 +66,7 @@ describe('deploy-controller payload builders', () => {
     expect(isAppInstallationError('Not Found')).toBe(true);
     expect(isAppInstallationError('Network timeout')).toBe(false);
 
-    expect(getAppInstallUrl('gitstamp')).toBe('https://github.com/apps/gitstamp/installations/new');
-    expect(getAppInstallUrl('')).toBe('https://github.com/apps/gitstamp/installations/new');
+    expect(getAppInstallUrl('gitstamp-art')).toBe('https://github.com/apps/gitstamp-art/installations/new');
+    expect(getAppInstallUrl('')).toBe('https://github.com/apps/gitstamp-art/installations/new');
   });
 });
