@@ -33,7 +33,6 @@ import {
   createBrushPalette
 } from './modules/ui-components';
 
-// Initialize Vercel Analytics
 inject();
 
 const DEFAULT_CLIENT_ID = (import.meta as any).env?.VITE_GITHUB_APP_CLIENT_ID || 'Iv23liETnS8etdqB3qHt';
