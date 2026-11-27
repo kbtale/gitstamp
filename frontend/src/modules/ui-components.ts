@@ -194,14 +194,15 @@ export function createSlider({
     getValue: () => number;
   };
 
+  const inputId = 'slider-input-' + Math.random().toString(36).substring(2, 7);
   const initialPercent = Math.max(0, Math.min(100, Math.round(((initialValue - min) / (max - min)) * 100)));
 
   container.innerHTML = `
-    <div class="control-label">
+    <label class="control-label" for="${inputId}">
       <span>${label}</span>
       <span class="slider-display">${initialValue}</span>
-    </div>
-    <input type="range" class="range-slider" min="${min}" max="${max}" value="${initialValue}" style="--slider-fill: ${initialPercent}%;" />
+    </label>
+    <input type="range" id="${inputId}" class="range-slider" min="${min}" max="${max}" value="${initialValue}" style="--slider-fill: ${initialPercent}%;" />
   `;
 
   const input = container.querySelector('input') as HTMLInputElement;
@@ -266,11 +267,12 @@ export function createToggleSwitch({
     isChecked: () => boolean;
   };
 
+  const toggleId = 'toggle-input-' + Math.random().toString(36).substring(2, 7);
   container.innerHTML = `
     <div class="toggle-switch-wrapper">
-      <span class="control-label">${label}</span>
-      <label class="toggle-switch">
-        <input type="checkbox" ${initialChecked ? 'checked' : ''} />
+      <label class="control-label" for="${toggleId}">${label}</label>
+      <label class="toggle-switch" for="${toggleId}">
+        <input type="checkbox" id="${toggleId}" ${initialChecked ? 'checked' : ''} />
         <span class="slider-knob"></span>
       </label>
     </div>

@@ -10,27 +10,25 @@ import {
   getStoredUser,
   clearAuth
 } from './modules/auth-pkce';
-import {
-  checkRepoExists,
-  createPublicRepo,
-  getFile,
-  putFile,
-  triggerWorkflow,
-  fetchExistingArt,
-  starRepo,
-  fetchUserContributions
-} from './modules/github-api';
-import {
-  RENDER_MJS_TEMPLATE,
-  RENDER_YML_TEMPLATE,
-  generateReadme
-} from './modules/templates';
+import { fetchExistingArt, fetchUserContributions } from './modules/github-api';
 import {
   createSegmentedControl,
   createSlider,
   createToggleSwitch,
   createBrushPalette
 } from './modules/ui-components';
+import { renderTextToMatrix } from './modules/pixel-text';
+import { STARTER_PRESETS, StarterPreset } from './modules/starter-presets';
+import { parseArtMatrix, serializeArtMatrix } from './modules/art-io';
+import { showToast } from './modules/toast';
+import { showConfirmDialog } from './modules/confirm-dialog';
+import {
+  buildDeployArtPayload,
+  deployArtworkToGithub,
+  StepStatus,
+  unstampArtworkFromGithub
+} from './modules/deploy-controller';
+import { renderContributionPreview } from './modules/preview-renderer';
 
 const DEFAULT_CLIENT_ID = (import.meta as any).env?.VITE_GITHUB_APP_CLIENT_ID || 'Iv23liETnS8etdqB3qHt';
 const DEFAULT_APP_SLUG = (import.meta as any).env?.VITE_GITHUB_APP_SLUG || 'gitstamp';
@@ -52,7 +50,6 @@ const matrixStore = new MatrixStore(24);
 
 const authStatusContainer = document.getElementById('auth-status-container') as HTMLElement;
 const btnOpenAuth = document.getElementById('btn-open-auth') as HTMLButtonElement;
-
 const btnAddArtwork = document.getElementById('btn-add-artwork') as HTMLButtonElement;
 const artworkItemsList = document.getElementById('artwork-items-list') as HTMLElement;
 const fileInput = document.getElementById('file-input') as HTMLInputElement;
@@ -78,6 +75,18 @@ const btnClearGrid = document.getElementById('btn-clear-grid') as HTMLButtonElem
 const btnInvertGrid = document.getElementById('btn-invert-grid') as HTMLButtonElement;
 const btnUndoGrid = document.getElementById('btn-undo-grid') as HTMLButtonElement;
 const btnRedoGrid = document.getElementById('btn-redo-grid') as HTMLButtonElement;
+const btnNudgeLeft = document.getElementById('btn-nudge-left') as HTMLButtonElement;
+const btnNudgeUp = document.getElementById('btn-nudge-up') as HTMLButtonElement;
+const btnNudgeDown = document.getElementById('btn-nudge-down') as HTMLButtonElement;
+const btnNudgeRight = document.getElementById('btn-nudge-right') as HTMLButtonElement;
+const btnFlipH = document.getElementById('btn-flip-h') as HTMLButtonElement;
+const btnFlipV = document.getElementById('btn-flip-v') as HTMLButtonElement;
+const btnExportJson = document.getElementById('btn-export-json') as HTMLButtonElement;
+const btnImportJson = document.getElementById('btn-import-json') as HTMLButtonElement;
+const jsonImportInput = document.getElementById('json-import-input') as HTMLInputElement;
+const pixelTextForm = document.getElementById('pixel-text-form') as HTMLFormElement;
+const pixelTextInput = document.getElementById('pixel-text-input') as HTMLInputElement;
+const presetGallery = document.getElementById('preset-gallery') as HTMLElement;
 
 const graphPreviewContainer = document.getElementById('graph-preview-container') as HTMLElement;
 const monthLabelsRow = document.getElementById('month-labels-row') as HTMLElement;
@@ -90,6 +99,7 @@ const deployPlanContainer = document.getElementById('deploy-plan-container') as 
 const repoNameInput = document.getElementById('repo-name-input') as HTMLInputElement;
 const repoStatusBadge = document.getElementById('repo-status-badge') as HTMLElement;
 const btnDeploy = document.getElementById('btn-deploy') as HTMLButtonElement;
+const btnUnstamp = document.getElementById('btn-unstamp') as HTMLButtonElement;
 const deployStepsContainer = document.getElementById('deploy-steps-container') as HTMLElement;
 const stepRepo = document.getElementById('step-repo') as HTMLElement;
 const stepFiles = document.getElementById('step-files') as HTMLElement;
@@ -106,6 +116,8 @@ let availableYears: number[] = [
 let activePreviewYear: number = currentYear;
 let artworkCounter = 1;
 const yearContributionsCache: Map<number, { matrix: ContributionLevel[][]; totalContributions: number }> = new Map();
+
+const UPLOAD_ICON_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>';
 
 function createEmptyMatrix(width: number = 24): ContributionLevel[][] {
   return Array.from({ length: 7 }, () => new Array<ContributionLevel>(width).fill(0));
@@ -142,37 +154,22 @@ function createArtworkItem(
 let artworkItems: ArtworkItem[] = [createArtworkItem([currentYear])];
 let activeArtworkId: string = artworkItems[0].id;
 
-function setAvailableYears(userYears?: number[]) {
-  const yearsSet = new Set<number>();
-  yearsSet.add(currentYear);
+function getActiveArtwork(): ArtworkItem {
+  return artworkItems.find((item) => item.id === activeArtworkId) || artworkItems[0];
+}
 
-  if (Array.isArray(userYears) && userYears.length > 0) {
-    for (const yr of userYears) {
-      if (Number.isFinite(yr)) {
-        yearsSet.add(yr);
-      }
-    }
-  } else {
-    for (let i = 1; i <= 4; i++) {
-      yearsSet.add(currentYear - i);
-    }
-  }
+function getArtworkForYear(year: number): ArtworkItem | undefined {
+  return artworkItems.find((item) => item.years.has(year));
+}
 
-  if (typeof artworkItems !== 'undefined') {
-    for (const item of artworkItems) {
-      for (const yr of item.years) {
-        yearsSet.add(yr);
-      }
+function getAllAssignedYears(): number[] {
+  const years = new Set<number>();
+  for (const item of artworkItems) {
+    for (const yr of item.years) {
+      years.add(yr);
     }
   }
-
-  availableYears = Array.from(yearsSet).sort((a, b) => b - a);
-  if (!availableYears.includes(activePreviewYear)) {
-    activePreviewYear = availableYears[0];
-  }
-  renderArtworkItemsList();
-  renderYearSelector();
-  renderDeployPlan();
+  return Array.from(years).sort((a, b) => b - a);
 }
 
 function hasArtworkContent(item: ArtworkItem): boolean {
@@ -190,22 +187,35 @@ function updateAddArtworkButtonVisibility() {
   btnAddArtwork.style.display = shouldShow ? 'flex' : 'none';
 }
 
-function getActiveArtwork(): ArtworkItem {
-  return artworkItems.find((item) => item.id === activeArtworkId) || artworkItems[0];
-}
+function setAvailableYears(userYears?: number[]) {
+  const yearsSet = new Set<number>();
+  yearsSet.add(currentYear);
 
-function getArtworkForYear(year: number): ArtworkItem | undefined {
-  return artworkItems.find((item) => item.years.has(year));
-}
-
-function getAllAssignedYears(): number[] {
-  const years = new Set<number>();
-  for (const item of artworkItems) {
-    for (const yr of item.years) {
-      years.add(yr);
+  if (Array.isArray(userYears) && userYears.length > 0) {
+    for (const yr of userYears) {
+      if (Number.isFinite(yr)) {
+        yearsSet.add(yr);
+      }
+    }
+  } else {
+    for (let i = 1; i <= 4; i++) {
+      yearsSet.add(currentYear - i);
     }
   }
-  return Array.from(years).sort((a, b) => b - a);
+
+  for (const item of artworkItems) {
+    for (const yr of item.years) {
+      yearsSet.add(yr);
+    }
+  }
+
+  availableYears = Array.from(yearsSet).sort((a, b) => b - a);
+  if (!availableYears.includes(activePreviewYear)) {
+    activePreviewYear = availableYears[0];
+  }
+  renderArtworkItemsList();
+  renderYearSelector();
+  renderDeployPlan();
 }
 
 const modeControl = createSegmentedControl<ProcessingMode>({
@@ -272,7 +282,65 @@ const widthSlider = createSlider({
   }
 });
 
-const UPLOAD_ICON_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>';
+createSegmentedControl<'profile' | 'editor'>({
+  container: viewModeContainer,
+  options: [
+    { label: '53-Week Profile', value: 'profile' },
+    { label: '7×N Canvas', value: 'editor' }
+  ],
+  initialValue: currentViewMode,
+  onChange: (view) => {
+    currentViewMode = view;
+    renderCurrentView(matrixStore.getMatrix());
+  }
+});
+
+createBrushPalette({
+  container: brushContainer,
+  initialBrush: 4,
+  onChange: (brush) => {
+    matrixStore.setActiveBrush(brush);
+  }
+});
+
+function syncSidebarToActiveArtwork() {
+  const item = getActiveArtwork();
+  modeControl.setValue(item.mode);
+  thresholdSlider.setValue(item.threshold);
+  invertToggle.setChecked(item.invert);
+  widthSlider.setValue(item.width);
+}
+
+function updateHistoryButtons() {
+  btnUndoGrid.disabled = !matrixStore.canUndo();
+  btnRedoGrid.disabled = !matrixStore.canRedo();
+}
+
+function renderCurrentView(matrix: ContributionLevel[][]) {
+  renderContributionPreview({
+    elements: {
+      graphPreviewContainer,
+      monthLabelsRow,
+      dayLabelsCol,
+      contributionMatrix,
+      graphDimensionsDisplay,
+      profileTotalCommits
+    },
+    matrix,
+    matrixStore,
+    activeItem: getActiveArtwork(),
+    previewOwner: getArtworkForYear(activePreviewYear),
+    activePreviewYear,
+    currentYear,
+    viewMode: currentViewMode,
+    highlightBounds,
+    showProfileContributions,
+    flattenBackground,
+    userProfileCalendar,
+    userTotalContributions
+  });
+  updateHistoryButtons();
+}
 
 function triggerUploadForArtwork(id: string) {
   pendingUploadArtworkId = id;
@@ -292,8 +360,7 @@ function clearArtworkImage(id: string) {
   item.imageThumbUrl = null;
   item.imageFilename = null;
   item.imageDims = null;
-  const idx = artworkItems.indexOf(item) + 1;
-  item.name = `Artwork ${idx}`;
+  item.name = `Artwork ${artworkItems.indexOf(item) + 1}`;
   item.matrix = createEmptyMatrix(item.width);
   if (item.id === activeArtworkId) {
     isSyncingMatrix = true;
@@ -305,14 +372,6 @@ function clearArtworkImage(id: string) {
   renderYearSelector();
   renderDeployPlan();
   renderCurrentView(matrixStore.getMatrix());
-}
-
-function syncSidebarToActiveArtwork() {
-  const item = getActiveArtwork();
-  modeControl.setValue(item.mode);
-  thresholdSlider.setValue(item.threshold);
-  invertToggle.setChecked(item.invert);
-  widthSlider.setValue(item.width);
 }
 
 function renderArtworkItemsList() {
@@ -329,11 +388,9 @@ function renderArtworkItemsList() {
       e.preventDefault();
       card.classList.add('dragover');
     });
-
     card.addEventListener('dragleave', () => {
       card.classList.remove('dragover');
     });
-
     card.addEventListener('drop', (e) => {
       e.preventDefault();
       card.classList.remove('dragover');
@@ -349,11 +406,14 @@ function renderArtworkItemsList() {
     const thumbBtn = document.createElement('button');
     thumbBtn.type = 'button';
     thumbBtn.className = `artwork-item-thumb ${item.imageThumbUrl ? '' : 'empty'}`.trim();
+    thumbBtn.setAttribute('aria-label', item.image ? `Replace image for ${item.name}` : `Upload image for ${item.name}`);
     thumbBtn.title = item.image ? `Replace image for ${item.name}` : `Upload image for ${item.name}`;
     if (item.imageThumbUrl) {
       const img = document.createElement('img');
       img.src = item.imageThumbUrl;
       img.alt = item.name;
+      img.width = 40;
+      img.height = 40;
       thumbBtn.appendChild(img);
     } else {
       thumbBtn.innerHTML = UPLOAD_ICON_SVG;
@@ -367,14 +427,16 @@ function renderArtworkItemsList() {
     info.className = 'artwork-item-info';
 
     const nameEl = document.createElement('div');
-    nameEl.className = `artwork-item-name ${item.image ? '' : 'is-prompt'}`.trim();
-    nameEl.textContent = item.image ? item.name : 'Click or drop image';
+    nameEl.className = `artwork-item-name ${item.image || hasArtworkContent(item) ? '' : 'is-prompt'}`.trim();
+    nameEl.textContent = item.image || hasArtworkContent(item) ? item.name : 'Click or drop image';
 
     const subEl = document.createElement('div');
     subEl.className = 'artwork-item-sub';
-    subEl.textContent = item.image ? (item.imageDims || `${item.width} cols`) : 'PNG, JPG, SVG, WEBP';
+    subEl.textContent = item.image || hasArtworkContent(item)
+      ? (item.imageDims || `7 × ${item.width} cols`)
+      : 'PNG, JPG, SVG, WEBP';
 
-    if (!item.image) {
+    if (!item.image && !hasArtworkContent(item)) {
       info.addEventListener('click', (e) => {
         e.stopPropagation();
         triggerUploadForArtwork(item.id);
@@ -391,7 +453,8 @@ function renderArtworkItemsList() {
       const uploadBtn = document.createElement('button');
       uploadBtn.type = 'button';
       uploadBtn.className = 'btn-artwork-action';
-      uploadBtn.title = `Replace image`;
+      uploadBtn.setAttribute('aria-label', 'Replace image');
+      uploadBtn.title = 'Replace image';
       uploadBtn.innerHTML = UPLOAD_ICON_SVG;
       uploadBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -404,6 +467,7 @@ function renderArtworkItemsList() {
       const deleteBtn = document.createElement('button');
       deleteBtn.type = 'button';
       deleteBtn.className = 'btn-artwork-action danger';
+      deleteBtn.setAttribute('aria-label', `Remove ${item.name}`);
       deleteBtn.title = `Remove ${item.name}`;
       deleteBtn.textContent = '✕';
       deleteBtn.addEventListener('click', (e) => {
@@ -415,6 +479,7 @@ function renderArtworkItemsList() {
       const clearBtn = document.createElement('button');
       clearBtn.type = 'button';
       clearBtn.className = 'btn-artwork-action danger';
+      clearBtn.setAttribute('aria-label', 'Remove image');
       clearBtn.title = 'Remove image';
       clearBtn.textContent = '✕';
       clearBtn.addEventListener('click', (e) => {
@@ -440,11 +505,9 @@ function renderArtworkItemsList() {
       pill.type = 'button';
       pill.className = `artwork-year-pill ${isOwnedByThis ? 'selected' : ''} ${isOwnedElsewhere ? 'assigned-elsewhere' : ''}`.trim();
       pill.textContent = String(yr);
-      if (isOwnedElsewhere && owner) {
-        pill.title = `Assigned to ${owner.name} — click to move ${yr} here`;
-      } else {
-        pill.title = yr === currentYear ? `${yr} (Rolling year)` : `${yr} calendar year`;
-      }
+      pill.title = isOwnedElsewhere && owner
+        ? `Assigned to ${owner.name}. Click to move ${yr} here`
+        : (yr === currentYear ? `${yr} (Rolling year)` : `${yr} calendar year`);
 
       pill.addEventListener('click', async (e) => {
         e.stopPropagation();
@@ -479,7 +542,6 @@ function renderArtworkItemsList() {
 
     card.appendChild(topRow);
     card.appendChild(yearsRow);
-
     card.addEventListener('click', () => {
       if (item.id !== activeArtworkId) {
         selectArtworkItem(item.id, true);
@@ -502,9 +564,7 @@ function renderYearSelector() {
     btn.type = 'button';
     btn.className = `year-pill ${yr === activePreviewYear ? 'active' : ''} ${owner ? 'target-enabled' : ''}`.trim();
     btn.textContent = String(yr);
-    btn.title = owner
-      ? `${yr} — ${owner.name}`
-      : `${yr} — no artwork assigned`;
+    btn.title = owner ? `${yr}: ${owner.name}` : `${yr}: no artwork assigned`;
     btn.addEventListener('click', async () => {
       if (yr === activePreviewYear) {
         return;
@@ -533,7 +593,7 @@ function renderDeployPlan() {
   if (assignedYears.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'deploy-plan-empty';
-    empty.textContent = 'No years assigned yet — select at least one year on an artwork above.';
+    empty.textContent = 'No years assigned yet. Select at least one year on an artwork.';
     deployPlanContainer.appendChild(empty);
     btnDeploy.disabled = true;
     return;
@@ -627,79 +687,6 @@ async function deleteArtworkItem(id: string) {
   }
 }
 
-btnAddArtwork.addEventListener('click', async () => {
-  const unassignedYear = availableYears.find((yr) => !getArtworkForYear(yr));
-  const newItem = createArtworkItem(unassignedYear !== undefined ? [unassignedYear] : []);
-  artworkItems.push(newItem);
-  await selectArtworkItem(newItem.id, true);
-});
-
-btnThemeToggle.addEventListener('click', () => {
-  currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
-  graphPreviewContainer.setAttribute('data-graph-theme', currentTheme);
-  btnThemeToggle.classList.toggle('is-light', currentTheme === 'light');
-});
-
-createSegmentedControl<'profile' | 'editor'>({
-  container: viewModeContainer,
-  options: [
-    { label: '53-Week Profile', value: 'profile' },
-    { label: '7×N Canvas', value: 'editor' }
-  ],
-  initialValue: currentViewMode,
-  onChange: (view) => {
-    currentViewMode = view;
-    renderCurrentView(matrixStore.getMatrix());
-  }
-});
-
-createBrushPalette({
-  container: brushContainer,
-  initialBrush: 4,
-  onChange: (brush) => {
-    matrixStore.setActiveBrush(brush);
-  }
-});
-
-function renderMonthLabels(year: number = activePreviewYear) {
-  monthLabelsRow.innerHTML = '';
-  let col0Sunday: Date;
-
-  if (year === currentYear) {
-    const now = new Date();
-    const currentDay = now.getUTCDay();
-    const currentSunday = new Date(Date.UTC(
-      now.getUTCFullYear(),
-      now.getUTCMonth(),
-      now.getUTCDate() - currentDay
-    ));
-    col0Sunday = new Date(currentSunday.getTime() - 52 * 7 * 86400000);
-  } else {
-    const jan1 = new Date(Date.UTC(year, 0, 1));
-    const jan1Day = jan1.getUTCDay();
-    col0Sunday = new Date(Date.UTC(year, 0, 1 - jan1Day));
-  }
-
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-  let lastMonth = -1;
-  let lastPlacedCol = -10;
-
-  for (let c = 0; c < 53; c++) {
-    const weekDate = new Date(col0Sunday.getTime() + c * 7 * 86400000);
-    const m = weekDate.getUTCMonth();
-    if (m !== lastMonth && (c - lastPlacedCol >= 3 || c === 0)) {
-      const span = document.createElement('span');
-      span.className = 'month-label-item';
-      span.style.setProperty('--month-col', String(c + 1));
-      span.textContent = months[m];
-      monthLabelsRow.appendChild(span);
-      lastMonth = m;
-      lastPlacedCol = c;
-    }
-  }
-}
-
 function reprocessCurrentImage(customWidth?: number, isManualThresholdChange?: boolean) {
   const item = getActiveArtwork();
   if (!item.image) {
@@ -722,187 +709,69 @@ function reprocessCurrentImage(customWidth?: number, isManualThresholdChange?: b
   renderDeployPlan();
 }
 
-function updateHistoryButtons() {
-  btnUndoGrid.disabled = !matrixStore.canUndo();
-  btnRedoGrid.disabled = !matrixStore.canRedo();
+function applyMatrixToActiveArtwork(matrix: ContributionLevel[][], label?: string) {
+  const item = getActiveArtwork();
+  if (item.imageThumbUrl) {
+    URL.revokeObjectURL(item.imageThumbUrl);
+  }
+  item.image = null;
+  item.imageThumbUrl = null;
+  item.imageFilename = null;
+  item.imageDims = `7 × ${matrix[0]?.length || 1} cols`;
+  if (label) {
+    item.name = label;
+  }
+  item.width = matrix[0]?.length || 1;
+  item.matrix = cloneMatrix(matrix);
+  isSyncingMatrix = true;
+  matrixStore.setMatrix(matrix);
+  isSyncingMatrix = false;
+  syncSidebarToActiveArtwork();
+  renderArtworkItemsList();
+  renderYearSelector();
+  renderDeployPlan();
+  renderCurrentView(matrixStore.getMatrix());
 }
 
-function renderCurrentView(matrix: ContributionLevel[][]) {
-  const activeItem = getActiveArtwork();
-  const previewOwner = getArtworkForYear(activePreviewYear);
-  const displayMatrix = currentViewMode === 'profile'
-    ? (previewOwner ? (previewOwner.id === activeItem.id ? matrix : previewOwner.matrix) : matrix)
-    : matrix;
-  const artHeight = 7;
-  const artWidth = displayMatrix[0]?.length || 0;
-  const startCol = Math.floor((53 - artWidth) / 2);
-  const commitsLabel = activePreviewYear === currentYear
-    ? 'contributions in the last year'
-    : `contributions in ${activePreviewYear}`;
+function renderPresetGallery() {
+  if (!presetGallery) {
+    return;
+  }
+  presetGallery.innerHTML = '';
 
-  contributionMatrix.innerHTML = '';
+  STARTER_PRESETS.forEach((preset: StarterPreset) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'preset-chip';
+    btn.title = `Load ${preset.name} preset`;
 
-  let totalCommits = 0;
-  const weightMap: Record<ContributionLevel, number> = {
-    0: 0,
-    1: 1,
-    2: 2,
-    3: 3,
-    4: 5
-  };
-
-  if (currentViewMode === 'profile') {
-    const isYearAssigned = Boolean(previewOwner);
-    const canPaintDirectly = Boolean(previewOwner && previewOwner.id === activeItem.id);
-
-    graphPreviewContainer.classList.remove('editor-mode-wrapper');
-    graphPreviewContainer.classList.toggle('highlight-bounds', highlightBounds && isYearAssigned);
-    dayLabelsCol.innerHTML = '<span></span><span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span>';
-    monthLabelsRow.style.display = 'grid';
-    renderMonthLabels(activePreviewYear);
-    contributionMatrix.className = 'grid-53';
-    contributionMatrix.style.gridTemplateColumns = 'repeat(53, var(--cell-size))';
-
-    for (let c = 0; c < 53; c++) {
-      const isArtworkCol = isYearAssigned && c >= startCol && c < startCol + artWidth;
-      const artCol = isArtworkCol ? c - startCol : -1;
-
-      for (let r = 0; r < 7; r++) {
-        const rawBgLevel: ContributionLevel = (showProfileContributions && userProfileCalendar)
-          ? (userProfileCalendar[c]?.[r] || 0)
-          : 0;
-        const bgLevel: ContributionLevel = (flattenBackground && rawBgLevel > 0)
-          ? 1
-          : rawBgLevel;
-        const artLevel: ContributionLevel = isArtworkCol
-          ? (displayMatrix[r][artCol] || 0)
-          : 0;
-        const isArtCell = isArtworkCol;
-        const level = Math.max(artLevel, bgLevel) as ContributionLevel;
-        totalCommits += weightMap[level] || 0;
-
-        const cell = document.createElement('div');
-        cell.className = `cell cell-level-${level} ${isArtCell ? 'cell-in-artwork' : ''}`;
-        cell.dataset.row = String(r);
-        cell.dataset.col = String(c);
-        cell.setAttribute('role', 'gridcell');
-
-        if (isArtCell && canPaintDirectly) {
-          cell.title = rawBgLevel > 0
-            ? `${activeItem.name} [Row ${r + 1}, Col ${artCol + 1}]: Art L${artLevel} · Profile L${rawBgLevel}`
-            : `${activeItem.name} [Row ${r + 1}, Col ${artCol + 1}]: Level ${artLevel}`;
-          cell.addEventListener('pointerdown', (e) => {
-            e.preventDefault();
-            matrixStore.handlePointerDown(r, artCol);
-          });
-          cell.addEventListener('pointerenter', () => {
-            matrixStore.handlePointerEnter(r, artCol);
-          });
-        } else if (isArtCell && previewOwner) {
-          cell.title = rawBgLevel > 0
-            ? `${previewOwner.name} [Row ${r + 1}, Col ${artCol + 1}]: Art L${artLevel} · Profile L${rawBgLevel}`
-            : `${previewOwner.name} [Row ${r + 1}, Col ${artCol + 1}]: Level ${artLevel}`;
-        } else {
-          cell.title = rawBgLevel > 0 ? `Profile Activity: Level ${rawBgLevel}` : `Profile Background [Col ${c + 1}]`;
-        }
-
-        contributionMatrix.appendChild(cell);
+    const mini = document.createElement('span');
+    mini.className = 'preset-mini-grid';
+    mini.setAttribute('aria-hidden', 'true');
+    const cols = Math.min(12, preset.matrix[0].length);
+    mini.style.gridTemplateColumns = `repeat(${cols}, 3px)`;
+    for (let r = 0; r < 7; r++) {
+      for (let c = 0; c < cols; c++) {
+        const srcCol = Math.floor((c / cols) * preset.matrix[0].length);
+        const dot = document.createElement('span');
+        dot.className = `preset-dot cell-level-${preset.matrix[r][srcCol]}`;
+        mini.appendChild(dot);
       }
     }
 
-    if (previewOwner) {
-      graphDimensionsDisplay.textContent = `${previewOwner.name}: 7 × ${artWidth} (${activePreviewYear} Profile)`;
-    } else {
-      graphDimensionsDisplay.textContent = `Year ${activePreviewYear} — No artwork assigned`;
-    }
+    const label = document.createElement('span');
+    label.className = 'preset-chip-label';
+    label.textContent = preset.name;
 
-    if (userTotalContributions !== null && showProfileContributions) {
-      profileTotalCommits.textContent = `${userTotalContributions.toLocaleString()} ${commitsLabel}`;
-    } else {
-      profileTotalCommits.textContent = `${totalCommits.toLocaleString()} ${commitsLabel}`;
-    }
-  } else {
-    graphPreviewContainer.classList.add('editor-mode-wrapper');
-    graphPreviewContainer.classList.remove('highlight-bounds');
-    dayLabelsCol.innerHTML = '<span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>';
-    monthLabelsRow.style.display = 'flex';
-    monthLabelsRow.innerHTML = '';
-    for (let c = 0; c < artWidth; c++) {
-      const colLabel = document.createElement('div');
-      colLabel.className = 'col-number-label';
-      colLabel.textContent = (c === 0 || (c + 1) % 5 === 0 || c === artWidth - 1) ? String(c + 1) : '';
-      monthLabelsRow.appendChild(colLabel);
-    }
-
-    contributionMatrix.className = 'contribution-matrix';
-    contributionMatrix.style.gridTemplateColumns = `repeat(${artWidth}, 24px)`;
-
-    for (let c = 0; c < artWidth; c++) {
-      for (let r = 0; r < artHeight; r++) {
-        const level = displayMatrix[r][c];
-        totalCommits += weightMap[level] || 0;
-
-        const cell = document.createElement('div');
-        cell.className = `cell editor-cell cell-level-${level}`;
-        cell.dataset.row = String(r);
-        cell.dataset.col = String(c);
-        cell.setAttribute('role', 'gridcell');
-        cell.setAttribute('aria-label', `Row ${r + 1}, Col ${c + 1}, Level ${level}`);
-        cell.title = `Cell [Row ${r + 1}, Col ${c + 1}]: Level ${level}`;
-
-        cell.addEventListener('pointerdown', (e) => {
-          e.preventDefault();
-          matrixStore.handlePointerDown(r, c);
-        });
-
-        cell.addEventListener('pointerenter', () => {
-          matrixStore.handlePointerEnter(r, c);
-        });
-
-        contributionMatrix.appendChild(cell);
-      }
-    }
-
-    graphDimensionsDisplay.textContent = `Editor (${activeItem.name}): 7 × ${artWidth} (${7 * artWidth} cells)`;
-    profileTotalCommits.textContent = `${totalCommits.toLocaleString()} ${commitsLabel}`;
-  }
-
-  updateHistoryButtons();
+    btn.appendChild(mini);
+    btn.appendChild(label);
+    btn.addEventListener('click', () => {
+      applyMatrixToActiveArtwork(preset.matrix, preset.name);
+      showToast(`Loaded "${preset.name}" preset`, 'info', 2200);
+    });
+    presetGallery.appendChild(btn);
+  });
 }
-
-matrixStore.subscribe((matrix) => {
-  if (!isSyncingMatrix) {
-    const item = getActiveArtwork();
-    item.matrix = cloneMatrix(matrix);
-    item.width = matrix[0]?.length || item.width;
-    updateAddArtworkButtonVisibility();
-    renderDeployPlan();
-  }
-  renderCurrentView(matrix);
-});
-
-syncSidebarToActiveArtwork();
-renderArtworkItemsList();
-renderYearSelector();
-renderDeployPlan();
-
-window.addEventListener('pointerup', () => {
-  matrixStore.handlePointerUp();
-});
-
-btnClearGrid.addEventListener('click', () => matrixStore.clear());
-btnInvertGrid.addEventListener('click', () => matrixStore.invert());
-btnUndoGrid.addEventListener('click', () => matrixStore.undo());
-btnRedoGrid.addEventListener('click', () => matrixStore.redo());
-
-fileInput.addEventListener('change', () => {
-  const file = fileInput.files?.[0];
-  const targetId = pendingUploadArtworkId || activeArtworkId;
-  pendingUploadArtworkId = null;
-  if (file) {
-    handleFileUpload(file, targetId);
-  }
-});
 
 async function handleFileUpload(file: File, targetId: string = activeArtworkId) {
   try {
@@ -964,47 +833,25 @@ async function handleFileUpload(file: File, targetId: string = activeArtworkId) 
     await loadUserContributions(activePreviewYear);
     renderCurrentView(matrixStore.getMatrix());
   } catch (err: any) {
-    alert(`Error loading image: ${err.message || err}`);
+    showToast(`Could not load image: ${err.message || err}`, 'error');
   }
 }
 
-btnContributionSettings.addEventListener('click', (e) => {
-  e.stopPropagation();
-  const isOpen = settingsDropdownMenu.style.display === 'flex';
-  settingsDropdownMenu.style.display = isOpen ? 'none' : 'flex';
-  btnContributionSettings.setAttribute('aria-expanded', String(!isOpen));
-});
+function setStepStatus(step: 'repo' | 'files' | 'dispatch', status: StepStatus, text?: string) {
+  const stepEl = step === 'repo' ? stepRepo : step === 'files' ? stepFiles : stepDispatch;
+  stepEl.className = `step-item step-${status}`;
+  const icon = stepEl.querySelector('.step-icon') as HTMLElement;
+  const label = stepEl.querySelector('.step-label') as HTMLElement;
 
-document.addEventListener('click', (e) => {
-  if (!settingsDropdownMenu.contains(e.target as Node) && e.target !== btnContributionSettings) {
-    settingsDropdownMenu.style.display = 'none';
-    btnContributionSettings.setAttribute('aria-expanded', 'false');
+  if (status === 'pending') icon.textContent = '○';
+  if (status === 'running') icon.textContent = '◐';
+  if (status === 'success') icon.textContent = '✓';
+  if (status === 'error') icon.textContent = '✕';
+
+  if (text) {
+    label.textContent = text;
   }
-});
-
-settingHighlightBounds.addEventListener('change', () => {
-  highlightBounds = settingHighlightBounds.checked;
-  renderCurrentView(matrixStore.getMatrix());
-});
-
-if (settingProfileContributions) {
-  settingProfileContributions.addEventListener('change', () => {
-    showProfileContributions = settingProfileContributions.checked;
-    renderCurrentView(matrixStore.getMatrix());
-  });
 }
-
-if (settingFlattenBackground) {
-  settingFlattenBackground.addEventListener('change', () => {
-    flattenBackground = settingFlattenBackground.checked;
-    renderCurrentView(matrixStore.getMatrix());
-  });
-}
-
-settingBtnResetArt.addEventListener('click', () => {
-  matrixStore.clear();
-  settingsDropdownMenu.style.display = 'none';
-});
 
 function updateTargetRepoLink() {
   const repoName = repoNameInput.value.trim() || 'gitstamp-art';
@@ -1013,7 +860,6 @@ function updateTargetRepoLink() {
   targetRepoLink.href = url;
   targetRepoLink.textContent = url;
 }
-repoNameInput.addEventListener('input', updateTargetRepoLink);
 
 async function loadUserContributions(year: number = activePreviewYear) {
   const token = getStoredToken();
@@ -1056,52 +902,6 @@ async function loadUserContributions(year: number = activePreviewYear) {
   } catch {}
 }
 
-function updateAuthDisplay() {
-  if (currentUser) {
-    btnOpenAuth.style.display = 'none';
-    authStatusContainer.innerHTML = `
-      <div class="user-profile-badge">
-        <img src="${currentUser.avatar_url}" alt="${currentUser.login}" class="user-avatar" />
-        <a href="https://github.com/${currentUser.login}" target="_blank" rel="noopener noreferrer" style="color: inherit; font-weight: 500;">@${currentUser.login}</a>
-        <button type="button" class="btn btn-secondary btn-sm" id="btn-logout" style="padding: 0.125rem 0.375rem; margin-left: 0.25rem;">Logout</button>
-      </div>
-    `;
-    const btnLogout = document.getElementById('btn-logout');
-    btnLogout?.addEventListener('click', () => {
-      clearAuth();
-      currentUser = null;
-      userProfileCalendar = null;
-      userTotalContributions = null;
-      yearContributionsCache.clear();
-      setAvailableYears();
-      updateAuthDisplay();
-      checkExistingUserRepo();
-      updateTargetRepoLink();
-      renderCurrentView(matrixStore.getMatrix());
-    });
-    checkExistingUserRepo();
-    updateTargetRepoLink();
-    loadUserContributions();
-  } else {
-    authStatusContainer.innerHTML = '';
-    btnOpenAuth.style.display = 'inline-flex';
-    repoStatusBadge.textContent = 'Public Repo';
-    userProfileCalendar = null;
-    userTotalContributions = null;
-    yearContributionsCache.clear();
-    updateTargetRepoLink();
-    renderCurrentView(matrixStore.getMatrix());
-  }
-}
-
-btnOpenAuth.addEventListener('click', async () => {
-  const redirectUri = window.location.origin + window.location.pathname;
-  await initiatePkceLogin({
-    clientId: activeClientId,
-    redirectUri
-  });
-});
-
 async function checkExistingUserRepo() {
   if (!currentUser) {
     return;
@@ -1116,13 +916,16 @@ async function checkExistingUserRepo() {
     const existing = await fetchExistingArt(token, currentUser.login, repoName);
     if (existing) {
       repoStatusBadge.textContent = 'Repo Connected';
-      repoStatusBadge.style.backgroundColor = '#1f6feb';
-      repoStatusBadge.style.color = '#ffffff';
+      repoStatusBadge.classList.add('is-connected');
 
-      const promptLoad = confirm(
-        `Found existing GitStamp art in @${currentUser.login}/${repoName}. Would you like to load it into the editor?`
-      );
-      if (promptLoad) {
+      const shouldLoad = await showConfirmDialog({
+        title: 'Load existing GitStamp art?',
+        message: `Found existing art configuration in @${currentUser.login}/${repoName}. Load it into the studio editor?`,
+        confirmLabel: 'Load Artwork',
+        cancelLabel: 'Keep Current'
+      });
+
+      if (shouldLoad) {
         const loadedItems: ArtworkItem[] = [];
         artworkCounter = 1;
 
@@ -1162,9 +965,7 @@ async function checkExistingUserRepo() {
 
         if (existing.config.flattenBackground !== undefined) {
           flattenBackground = existing.config.flattenBackground;
-          if (settingFlattenBackground) {
-            settingFlattenBackground.checked = flattenBackground;
-          }
+          settingFlattenBackground.checked = flattenBackground;
         }
 
         if (loadedItems.length > 0) {
@@ -1175,32 +976,212 @@ async function checkExistingUserRepo() {
           }
           artworkItems = loadedItems;
           await selectArtworkItem(artworkItems[0].id, true);
+          showToast(`Loaded artwork from @${currentUser.login}/${repoName}`, 'success');
         }
       }
     } else {
       repoStatusBadge.textContent = 'New Repo';
-      repoStatusBadge.style.backgroundColor = 'var(--color-border)';
-      repoStatusBadge.style.color = 'var(--color-text-muted)';
+      repoStatusBadge.classList.remove('is-connected');
     }
   } catch {
     repoStatusBadge.textContent = 'Public Repo';
+    repoStatusBadge.classList.remove('is-connected');
   }
 }
 
-function setStepStatus(stepEl: HTMLElement, status: 'pending' | 'running' | 'success' | 'error', text?: string) {
-  stepEl.className = `step-item step-${status}`;
-  const icon = stepEl.querySelector('.step-icon') as HTMLElement;
-  const label = stepEl.querySelector('.step-label') as HTMLElement;
-
-  if (status === 'pending') icon.textContent = '○';
-  if (status === 'running') icon.textContent = '◐';
-  if (status === 'success') icon.textContent = '✓';
-  if (status === 'error') icon.textContent = '✕';
-
-  if (text) {
-    label.textContent = text;
+function updateAuthDisplay() {
+  if (currentUser) {
+    btnOpenAuth.style.display = 'none';
+    authStatusContainer.innerHTML = `
+      <div class="user-profile-badge">
+        <img src="${currentUser.avatar_url}" alt="${currentUser.login}" width="24" height="24" class="user-avatar" />
+        <a href="https://github.com/${currentUser.login}" target="_blank" rel="noopener noreferrer" style="color: inherit; font-weight: 600;">@${currentUser.login}</a>
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-logout">Logout</button>
+      </div>
+    `;
+    const btnLogout = document.getElementById('btn-logout');
+    btnLogout?.addEventListener('click', () => {
+      clearAuth();
+      currentUser = null;
+      userProfileCalendar = null;
+      userTotalContributions = null;
+      yearContributionsCache.clear();
+      setAvailableYears();
+      updateAuthDisplay();
+      updateTargetRepoLink();
+      renderCurrentView(matrixStore.getMatrix());
+    });
+    checkExistingUserRepo();
+    updateTargetRepoLink();
+    loadUserContributions();
+  } else {
+    authStatusContainer.innerHTML = '';
+    btnOpenAuth.style.display = 'inline-flex';
+    repoStatusBadge.textContent = 'Public Repo';
+    repoStatusBadge.classList.remove('is-connected');
+    userProfileCalendar = null;
+    userTotalContributions = null;
+    yearContributionsCache.clear();
+    updateTargetRepoLink();
+    renderCurrentView(matrixStore.getMatrix());
   }
 }
+
+matrixStore.subscribe((matrix) => {
+  if (!isSyncingMatrix) {
+    const item = getActiveArtwork();
+    item.matrix = cloneMatrix(matrix);
+    item.width = matrix[0]?.length || item.width;
+    updateAddArtworkButtonVisibility();
+    renderDeployPlan();
+  }
+  renderCurrentView(matrix);
+});
+
+btnAddArtwork.addEventListener('click', async () => {
+  const unassignedYear = availableYears.find((yr) => !getArtworkForYear(yr));
+  const newItem = createArtworkItem(unassignedYear !== undefined ? [unassignedYear] : []);
+  artworkItems.push(newItem);
+  await selectArtworkItem(newItem.id, true);
+});
+
+btnThemeToggle.addEventListener('click', () => {
+  currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+  graphPreviewContainer.setAttribute('data-graph-theme', currentTheme);
+  btnThemeToggle.classList.toggle('is-light', currentTheme === 'light');
+});
+
+window.addEventListener('pointerup', () => matrixStore.handlePointerUp());
+btnClearGrid.addEventListener('click', () => matrixStore.clear());
+btnInvertGrid.addEventListener('click', () => matrixStore.invert());
+btnUndoGrid.addEventListener('click', () => matrixStore.undo());
+btnRedoGrid.addEventListener('click', () => matrixStore.redo());
+btnNudgeLeft.addEventListener('click', () => matrixStore.nudge(-1, 0));
+btnNudgeUp.addEventListener('click', () => matrixStore.nudge(0, -1));
+btnNudgeDown.addEventListener('click', () => matrixStore.nudge(0, 1));
+btnNudgeRight.addEventListener('click', () => matrixStore.nudge(1, 0));
+btnFlipH.addEventListener('click', () => matrixStore.flipHorizontal());
+btnFlipV.addEventListener('click', () => matrixStore.flipVertical());
+
+fileInput.addEventListener('change', () => {
+  const file = fileInput.files?.[0];
+  const targetId = pendingUploadArtworkId || activeArtworkId;
+  pendingUploadArtworkId = null;
+  if (file) {
+    handleFileUpload(file, targetId);
+  }
+});
+
+pixelTextForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const text = pixelTextInput.value.trim();
+  if (!text) {
+    return;
+  }
+  const activeBrush = matrixStore.getActiveBrush();
+  const shade: ContributionLevel = activeBrush > 0 ? activeBrush : 4;
+  const matrix = renderTextToMatrix(text, { shade, spacing: 1, maxWidth: 53 });
+  applyMatrixToActiveArtwork(matrix, text.toUpperCase());
+  showToast(`Stamped "${text.toUpperCase()}"`, 'info', 2200);
+});
+
+btnExportJson.addEventListener('click', () => {
+  const item = getActiveArtwork();
+  const json = serializeArtMatrix(matrixStore.getMatrix(), item.name);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${item.name.toLowerCase().replace(/[^a-z0-9-_]+/g, '-') || 'gitstamp-art'}.json`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+  showToast('Exported artwork JSON', 'success', 2400);
+});
+
+btnImportJson.addEventListener('click', () => {
+  jsonImportInput.value = '';
+  jsonImportInput.click();
+});
+
+jsonImportInput.addEventListener('change', async () => {
+  const file = jsonImportInput.files?.[0];
+  if (!file) {
+    return;
+  }
+  try {
+    const raw = await file.text();
+    const { matrix, name } = parseArtMatrix(raw);
+    applyMatrixToActiveArtwork(matrix, name || file.name.replace(/\.json$/i, ''));
+    showToast('Imported artwork JSON', 'success', 2400);
+  } catch (err: any) {
+    showToast(`Invalid art JSON: ${err.message || err}`, 'error');
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  const target = e.target as HTMLElement | null;
+  if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+    return;
+  }
+  const mod = e.ctrlKey || e.metaKey;
+  if (!mod) {
+    return;
+  }
+  const key = e.key.toLowerCase();
+  if (key === 'z' && !e.shiftKey) {
+    e.preventDefault();
+    matrixStore.undo();
+  } else if (key === 'y' || (key === 'z' && e.shiftKey)) {
+    e.preventDefault();
+    matrixStore.redo();
+  }
+});
+
+btnContributionSettings.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const isOpen = settingsDropdownMenu.style.display === 'flex';
+  settingsDropdownMenu.style.display = isOpen ? 'none' : 'flex';
+  btnContributionSettings.setAttribute('aria-expanded', String(!isOpen));
+});
+
+document.addEventListener('click', (e) => {
+  if (!settingsDropdownMenu.contains(e.target as Node) && e.target !== btnContributionSettings) {
+    settingsDropdownMenu.style.display = 'none';
+    btnContributionSettings.setAttribute('aria-expanded', 'false');
+  }
+});
+
+settingHighlightBounds.addEventListener('change', () => {
+  highlightBounds = settingHighlightBounds.checked;
+  renderCurrentView(matrixStore.getMatrix());
+});
+
+settingProfileContributions.addEventListener('change', () => {
+  showProfileContributions = settingProfileContributions.checked;
+  renderCurrentView(matrixStore.getMatrix());
+});
+
+settingFlattenBackground.addEventListener('change', () => {
+  flattenBackground = settingFlattenBackground.checked;
+  renderCurrentView(matrixStore.getMatrix());
+});
+
+settingBtnResetArt.addEventListener('click', () => {
+  matrixStore.clear();
+  settingsDropdownMenu.style.display = 'none';
+});
+
+repoNameInput.addEventListener('input', updateTargetRepoLink);
+
+btnOpenAuth.addEventListener('click', async () => {
+  const redirectUri = window.location.origin + window.location.pathname;
+  await initiatePkceLogin({
+    clientId: activeClientId,
+    redirectUri
+  });
+});
 
 btnDeploy.addEventListener('click', async () => {
   const token = getStoredToken();
@@ -1218,137 +1199,106 @@ btnDeploy.addEventListener('click', async () => {
 
   const sortedYears = getAllAssignedYears();
   if (sortedYears.length === 0) {
-    alert('Please assign at least one year to an artwork before deploying.');
+    showToast('Assign at least one year to an artwork before deploying.', 'error');
     return;
   }
 
   const repoName = repoNameInput.value.trim() || 'gitstamp-art';
-  const owner = currentUser.login;
-
   deployStepsContainer.style.display = 'flex';
   btnDeploy.disabled = true;
-  btnDeploy.textContent = 'Deploying...';
-
-  setStepStatus(stepRepo, 'running', `1. Verifying repository @${owner}/${repoName}...`);
-  setStepStatus(stepFiles, 'pending');
-  setStepStatus(stepDispatch, 'pending');
+  btnUnstamp.disabled = true;
+  btnDeploy.textContent = 'Deploying…';
 
   try {
-    let repo = await checkRepoExists(token, owner, repoName);
-    if (!repo) {
-      setStepStatus(stepRepo, 'running', `1. Creating public repository @${owner}/${repoName}...`);
-      repo = await createPublicRepo(token, repoName);
-    }
-    setStepStatus(stepRepo, 'success', `1. Repository @${owner}/${repoName} ready`);
+    const artData = buildDeployArtPayload({
+      user: currentUser,
+      sortedYears,
+      currentYear,
+      getArtworkForYear,
+      fallbackMatrix: activeItem.matrix,
+      flattenBackground
+    });
 
-    setStepStatus(stepFiles, 'running', '2. Committing engine files (art.json, render.mjs, workflow, README)...');
-
-    const patterns: Record<string, { type: 'rolling' | 'calendar'; matrix: ContributionLevel[][] }> = {};
-    let hasGrayscale = false;
-
-    for (const yr of sortedYears) {
-      const yearArtwork = getArtworkForYear(yr);
-      if (!yearArtwork) {
-        continue;
-      }
-      if (yearArtwork.mode === 'grayscale') {
-        hasGrayscale = true;
-      }
-      patterns[String(yr)] = {
-        type: yr === currentYear ? 'rolling' : 'calendar',
-        matrix: yearArtwork.matrix
-      };
-    }
-
-    const primaryMatrix = patterns[String(sortedYears[0])]?.matrix || activeItem.matrix;
-
-    const artData = {
-      authorName: currentUser.login,
-      authorEmail: currentUser.noreply_email,
-      mode: hasGrayscale ? 'grayscale' : 'bicolor',
-      matrix: primaryMatrix,
-      years: sortedYears,
-      patterns,
-      flattenBackground,
-      updatedAt: new Date().toISOString()
-    };
-
-    const readmeContent = generateReadme(
-      primaryMatrix,
-      currentUser.login,
-      window.location.href,
-      sortedYears
-    );
-
-    const artSha = (await getFile(token, owner, repoName, 'art.json'))?.sha;
-    await putFile(
+    await deployArtworkToGithub({
       token,
-      owner,
+      user: currentUser,
       repoName,
-      'art.json',
-      JSON.stringify(artData, null, 2),
-      'feat(gitstamp): configure contribution art',
-      artSha
-    );
+      artData,
+      webAppUrl: window.location.href,
+      callbacks: { onStep: setStepStatus }
+    });
 
-    const mjsSha = (await getFile(token, owner, repoName, 'scripts/render.mjs'))?.sha;
-    await putFile(
-      token,
-      owner,
-      repoName,
-      'scripts/render.mjs',
-      RENDER_MJS_TEMPLATE,
-      'feat(gitstamp): install automation engine',
-      mjsSha
-    );
-
-    const ymlSha = (await getFile(token, owner, repoName, '.github/workflows/render.yml'))?.sha;
-    await putFile(
-      token,
-      owner,
-      repoName,
-      '.github/workflows/render.yml',
-      RENDER_YML_TEMPLATE,
-      'feat(gitstamp): setup weekly self-centering workflow',
-      ymlSha
-    );
-
-    const readmeSha = (await getFile(token, owner, repoName, 'README.md'))?.sha;
-    await putFile(
-      token,
-      owner,
-      repoName,
-      'README.md',
-      readmeContent,
-      'docs(gitstamp): update artwork documentation',
-      readmeSha
-    );
-
-    setStepStatus(stepFiles, 'success', '2. Engine files committed successfully');
-
-    setStepStatus(stepDispatch, 'running', '3. Dispatching render workflow for first execution...');
-    await starRepo(token, 'kbtale', 'gitstamp');
-    await triggerWorkflow(token, owner, repoName, 'render.yml', repo.default_branch);
-    setStepStatus(stepDispatch, 'success', '3. Workflow dispatched! History rendering in progress');
-
-    btnDeploy.textContent = 'Deployment Complete!';
-    alert(`Success! GitStamp deployed to https://github.com/${owner}/${repoName}. The initial render workflow has been triggered and your logo will appear on your profile shortly!`);
+    showToast(`Deployed to @${currentUser.login}/${repoName}. Render workflow running.`, 'success', 5500);
   } catch (err: any) {
-    if (err.message && (err.message.includes('integration') || err.message.includes('403') || err.message.includes('Not Found'))) {
-      alert(`Deployment failed: ${err.message}. If you have not yet installed the GitStamp GitHub App on your account, please install it at https://github.com/apps/${activeAppSlug}/installations/new`);
+    const msg = err.message || String(err);
+    if (msg.includes('integration') || msg.includes('403') || msg.includes('Not Found')) {
+      showToast(`Install the GitStamp GitHub App at github.com/apps/${activeAppSlug}/installations/new`, 'error', 7000);
     } else {
-      alert(`Deployment failed: ${err.message || err}`);
+      showToast(`Deployment failed: ${msg}`, 'error', 6000);
     }
     if (stepRepo.className.includes('running')) {
-      setStepStatus(stepRepo, 'error', `1. Repository failed: ${err.message}`);
+      setStepStatus('repo', 'error', `1. Repository failed: ${msg}`);
     } else if (stepFiles.className.includes('running')) {
-      setStepStatus(stepFiles, 'error', `2. File sync failed: ${err.message}`);
+      setStepStatus('files', 'error', `2. File sync failed: ${msg}`);
     } else {
-      setStepStatus(stepDispatch, 'error', `3. Workflow dispatch failed: ${err.message}`);
+      setStepStatus('dispatch', 'error', `3. Workflow dispatch failed: ${msg}`);
     }
   } finally {
     btnDeploy.disabled = getAllAssignedYears().length === 0;
+    btnUnstamp.disabled = false;
     btnDeploy.textContent = 'Deploy to My GitHub Profile';
+  }
+});
+
+btnUnstamp.addEventListener('click', async () => {
+  const token = getStoredToken();
+  if (!currentUser || !token) {
+    showToast('Sign in with GitHub first to unstamp an art repository.', 'info');
+    return;
+  }
+
+  const repoName = repoNameInput.value.trim() || 'gitstamp-art';
+  const confirmed = await showConfirmDialog({
+    title: `Unstamp @${currentUser.login}/${repoName}?`,
+    message: 'This clears art.json and triggers an orphan history sync so all GitStamp commits are removed from your contribution graph. Your other repositories are untouched.',
+    confirmLabel: 'Unstamp Art',
+    cancelLabel: 'Cancel',
+    danger: true
+  });
+
+  if (!confirmed) {
+    return;
+  }
+
+  deployStepsContainer.style.display = 'flex';
+  btnDeploy.disabled = true;
+  btnUnstamp.disabled = true;
+  btnUnstamp.textContent = 'Unstamping…';
+
+  try {
+    await unstampArtworkFromGithub({
+      token,
+      user: currentUser,
+      repoName,
+      currentYear,
+      webAppUrl: window.location.href,
+      callbacks: { onStep: setStepStatus }
+    });
+    showToast(`Unstamp triggered on @${currentUser.login}/${repoName}`, 'success', 5500);
+  } catch (err: any) {
+    const msg = err.message || String(err);
+    showToast(`Unstamp failed: ${msg}`, 'error', 6000);
+    if (stepRepo.className.includes('running')) {
+      setStepStatus('repo', 'error', `1. Repository check failed: ${msg}`);
+    } else if (stepFiles.className.includes('running')) {
+      setStepStatus('files', 'error', `2. Clear failed: ${msg}`);
+    } else {
+      setStepStatus('dispatch', 'error', `3. Workflow dispatch failed: ${msg}`);
+    }
+  } finally {
+    btnDeploy.disabled = getAllAssignedYears().length === 0;
+    btnUnstamp.disabled = false;
+    btnUnstamp.textContent = 'Unstamp Art';
   }
 });
 
@@ -1378,6 +1328,13 @@ window.addEventListener('gitstamp:auth-expired', () => {
 });
 
 async function init() {
+  syncSidebarToActiveArtwork();
+  renderArtworkItemsList();
+  renderPresetGallery();
+  renderYearSelector();
+  renderDeployPlan();
+  updateTargetRepoLink();
+
   await loadServerConfig();
 
   const urlParams = new URLSearchParams(window.location.search);
