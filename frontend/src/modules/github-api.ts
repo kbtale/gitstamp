@@ -36,7 +36,7 @@ export async function checkRepoExists(
   }
 
   if (!res.ok) {
-    if (res.status === 401 || res.status === 403) {
+    if (res.status === 401) {
       clearAuth();
       window.dispatchEvent(new CustomEvent('gitstamp:auth-expired'));
     }
@@ -72,7 +72,7 @@ export async function createPublicRepo(
   });
 
   if (!res.ok) {
-    if (res.status === 401 || res.status === 403) {
+    if (res.status === 401) {
       clearAuth();
       window.dispatchEvent(new CustomEvent('gitstamp:auth-expired'));
     }
@@ -107,7 +107,7 @@ export async function getFile(
   }
 
   if (!res.ok) {
-    if (res.status === 401 || res.status === 403) {
+    if (res.status === 401) {
       clearAuth();
       window.dispatchEvent(new CustomEvent('gitstamp:auth-expired'));
     }
@@ -150,7 +150,7 @@ export async function putFile(
   });
 
   if (!res.ok) {
-    if (res.status === 401 || res.status === 403) {
+    if (res.status === 401) {
       clearAuth();
       window.dispatchEvent(new CustomEvent('gitstamp:auth-expired'));
     }
@@ -297,7 +297,7 @@ export async function fetchUserContributions(
     });
 
     if (!res.ok) {
-      if (res.status === 401 || res.status === 403) {
+      if (res.status === 401) {
         clearAuth();
         window.dispatchEvent(new CustomEvent('gitstamp:auth-expired'));
       }
@@ -346,6 +346,40 @@ export async function fetchUserContributions(
       matrix,
       years
     };
+  } catch {
+    return null;
+  }
+}
+
+export async function checkAppInstallation(
+  token: string,
+  username: string
+): Promise<boolean | null> {
+  try {
+    const res = await fetch('https://api.github.com/user/installations', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json'
+      }
+    });
+
+    if (res.status === 401) {
+      clearAuth();
+      window.dispatchEvent(new CustomEvent('gitstamp:auth-expired'));
+      return null;
+    }
+
+    if (!res.ok) {
+      return null;
+    }
+
+    const data = await res.json();
+    const installations = Array.isArray(data?.installations) ? data.installations : [];
+    return installations.some(
+      (inst: { account?: { login?: string } }) =>
+        typeof inst?.account?.login === 'string' &&
+        inst.account.login.toLowerCase() === username.toLowerCase()
+    );
   } catch {
     return null;
   }
