@@ -3,20 +3,43 @@ import { ContributionLevel } from '../types';
 
 export type MatrixListener = (matrix: ContributionLevel[][]) => void;
 
+interface MatrixSnapshot {
+  matrix: ContributionLevel[][];
+  label?: string;
+}
+
 export class MatrixStore {
   private matrix: ContributionLevel[][];
   private width: number;
+  private label?: string;
   private readonly height: number = 7;
-  private undoStack: ReturnType<typeof createUndoStack<ContributionLevel[][]>>;
+  private undoStack: ReturnType<typeof createUndoStack<MatrixSnapshot>>;
   private listeners: Set<MatrixListener> = new Set();
   private isPointerDown: boolean = false;
   private activeBrush: ContributionLevel = 4;
   private currentStrokeBrush: ContributionLevel = 4;
 
-  constructor(initialWidth: number = 24) {
-    this.width = Math.max(1, Math.min(53, initialWidth));
-    this.matrix = this.createEmptyMatrix(this.width);
-    this.undoStack = createUndoStack(this.getMatrix());
+  constructor(
+    initialWidth: number = 24,
+    initialMatrix?: ContributionLevel[][],
+    initialLabel?: string
+  ) {
+    if (initialMatrix && initialMatrix.length === 7 && initialMatrix[0]?.length) {
+      this.width = Math.max(1, Math.min(53, initialMatrix[0].length));
+      this.matrix = initialMatrix.map((row) => [...row]);
+    } else {
+      this.width = Math.max(1, Math.min(53, initialWidth));
+      this.matrix = this.createEmptyMatrix(this.width);
+    }
+    this.label = initialLabel;
+    this.undoStack = createUndoStack(this.snapshot());
+  }
+
+  private snapshot(): MatrixSnapshot {
+    return {
+      matrix: this.getMatrix(),
+      label: this.label
+    };
   }
 
   private createEmptyMatrix(width: number): ContributionLevel[][] {
@@ -37,6 +60,10 @@ export class MatrixStore {
     return this.height;
   }
 
+  public getLabel(): string | undefined {
+    return this.label;
+  }
+
   public getActiveBrush(): ContributionLevel {
     return this.activeBrush;
   }
@@ -45,11 +72,23 @@ export class MatrixStore {
     this.activeBrush = level;
   }
 
-  public setMatrix(newMatrix: ContributionLevel[][]): void {
+  public reset(newMatrix: ContributionLevel[][], label?: string): void {
     const newWidth = Math.max(1, Math.min(53, newMatrix[0]?.length || 24));
     this.width = newWidth;
     this.matrix = newMatrix.map((row) => [...row]);
-    this.undoStack.record(this.getMatrix());
+    this.label = label;
+    this.undoStack = createUndoStack(this.snapshot());
+    this.notify();
+  }
+
+  public setMatrix(newMatrix: ContributionLevel[][], label?: string): void {
+    const newWidth = Math.max(1, Math.min(53, newMatrix[0]?.length || 24));
+    this.width = newWidth;
+    this.matrix = newMatrix.map((row) => [...row]);
+    if (label !== undefined) {
+      this.label = label;
+    }
+    this.undoStack.record(this.snapshot());
     this.notify();
   }
 
@@ -65,7 +104,7 @@ export class MatrixStore {
   }
 
   public commitPaint(): void {
-    this.undoStack.record(this.getMatrix());
+    this.undoStack.record(this.snapshot());
   }
 
   public setWidth(newWidth: number): void {
@@ -87,13 +126,13 @@ export class MatrixStore {
 
     this.width = clamped;
     this.matrix = newMatrix;
-    this.undoStack.record(this.getMatrix());
+    this.undoStack.record(this.snapshot());
     this.notify();
   }
 
   public clear(): void {
     this.matrix = this.createEmptyMatrix(this.width);
-    this.undoStack.record(this.getMatrix());
+    this.undoStack.record(this.snapshot());
     this.notify();
   }
 
@@ -104,7 +143,7 @@ export class MatrixStore {
         this.matrix[r][c] = ((4 - current) as ContributionLevel);
       }
     }
-    this.undoStack.record(this.getMatrix());
+    this.undoStack.record(this.snapshot());
     this.notify();
   }
 
@@ -120,19 +159,19 @@ export class MatrixStore {
       }
     }
     this.matrix = next;
-    this.undoStack.record(this.getMatrix());
+    this.undoStack.record(this.snapshot());
     this.notify();
   }
 
   public flipHorizontal(): void {
     this.matrix = this.matrix.map((row) => [...row].reverse());
-    this.undoStack.record(this.getMatrix());
+    this.undoStack.record(this.snapshot());
     this.notify();
   }
 
   public flipVertical(): void {
     this.matrix = [...this.matrix].reverse().map((row) => [...row]);
-    this.undoStack.record(this.getMatrix());
+    this.undoStack.record(this.snapshot());
     this.notify();
   }
 
@@ -160,9 +199,10 @@ export class MatrixStore {
       return;
     }
     const state = this.undoStack.undo();
-    if (state && Array.isArray(state)) {
-      this.width = state[0].length;
-      this.matrix = state.map((r) => [...r]);
+    if (state && Array.isArray(state.matrix)) {
+      this.width = state.matrix[0].length;
+      this.matrix = state.matrix.map((r) => [...r]);
+      this.label = state.label;
       this.notify();
     }
   }
@@ -172,9 +212,10 @@ export class MatrixStore {
       return;
     }
     const state = this.undoStack.redo();
-    if (state && Array.isArray(state)) {
-      this.width = state[0].length;
-      this.matrix = state.map((r) => [...r]);
+    if (state && Array.isArray(state.matrix)) {
+      this.width = state.matrix[0].length;
+      this.matrix = state.matrix.map((r) => [...r]);
+      this.label = state.label;
       this.notify();
     }
   }
