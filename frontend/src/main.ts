@@ -506,7 +506,7 @@ function renderArtworkItemsList() {
       pill.className = `artwork-year-pill ${isOwnedByThis ? 'selected' : ''} ${isOwnedElsewhere ? 'assigned-elsewhere' : ''}`.trim();
       pill.textContent = String(yr);
       pill.title = isOwnedElsewhere && owner
-        ? `Assigned to ${owner.name} — click to move ${yr} here`
+        ? `Assigned to ${owner.name}. Click to move ${yr} here`
         : (yr === currentYear ? `${yr} (Rolling year)` : `${yr} calendar year`);
 
       pill.addEventListener('click', async (e) => {
@@ -564,7 +564,7 @@ function renderYearSelector() {
     btn.type = 'button';
     btn.className = `year-pill ${yr === activePreviewYear ? 'active' : ''} ${owner ? 'target-enabled' : ''}`.trim();
     btn.textContent = String(yr);
-    btn.title = owner ? `${yr} — ${owner.name}` : `${yr} — no artwork assigned`;
+    btn.title = owner ? `${yr}: ${owner.name}` : `${yr}: no artwork assigned`;
     btn.addEventListener('click', async () => {
       if (yr === activePreviewYear) {
         return;
@@ -593,7 +593,7 @@ function renderDeployPlan() {
   if (assignedYears.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'deploy-plan-empty';
-    empty.textContent = 'No years assigned yet — select at least one year on an artwork.';
+    empty.textContent = 'No years assigned yet. Select at least one year on an artwork.';
     deployPlanContainer.appendChild(empty);
     btnDeploy.disabled = true;
     return;
@@ -1228,7 +1228,7 @@ btnDeploy.addEventListener('click', async () => {
       callbacks: { onStep: setStepStatus }
     });
 
-    showToast(`Deployed to @${currentUser.login}/${repoName} — render workflow running`, 'success', 5500);
+    showToast(`Deployed to @${currentUser.login}/${repoName}. Render workflow running.`, 'success', 5500);
   } catch (err: any) {
     const msg = err.message || String(err);
     if (msg.includes('integration') || msg.includes('403') || msg.includes('Not Found')) {

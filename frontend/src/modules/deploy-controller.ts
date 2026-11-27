@@ -149,7 +149,7 @@ export async function deployArtworkToGithub(params: {
   callbacks.onStep('dispatch', 'running', '3. Dispatching render workflow…');
   await starRepo(token, 'kbtale', 'gitstamp');
   await triggerWorkflow(token, owner, repoName, 'render.yml', repo.default_branch);
-  callbacks.onStep('dispatch', 'success', '3. Workflow dispatched — profile graph updating');
+  callbacks.onStep('dispatch', 'success', '3. Workflow dispatched. Profile graph updating.');
 }
 
 export async function unstampArtworkFromGithub(params: {
@@ -213,5 +213,5 @@ export async function unstampArtworkFromGithub(params: {
 
   callbacks.onStep('dispatch', 'running', '3. Triggering clean orphan sync…');
   await triggerWorkflow(token, owner, repoName, 'render.yml', repo.default_branch);
-  callbacks.onStep('dispatch', 'success', '3. Unstamp workflow dispatched — stamped commits will clear shortly');
+  callbacks.onStep('dispatch', 'success', '3. Unstamp workflow dispatched. Stamped commits will clear shortly.');
 }
